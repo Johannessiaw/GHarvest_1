@@ -1,0 +1,6 @@
+{
+  "name": "GHarvest - Kofi Voice-First AI Assistant & Agricultural Supply Chain",
+  "description": "Kofi: Intelligent voice-first AI assistant for GHarvest, powering Ghanaian agricultural commerce with GhanaNLP speech normalization, Twi/Ghanaian English understanding, real-time logistics, and verified farmer trade.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
