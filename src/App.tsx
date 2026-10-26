@@ -759,8 +759,9 @@ export default function App() {
         onRepeatResponse={(text) => voiceEngineRef.current?.speak(text)}
         onDoneSpeaking={() => {
           const text = (finalTranscript + ' ' + partialTranscript).trim();
-          voiceEngineRef.current?.finishTurn(text);
-          if (text) {
+          if (voiceEngineRef.current) {
+            voiceEngineRef.current.finishTurn(text);
+          } else if (text) {
             handleUserQuery(text);
           }
         }}

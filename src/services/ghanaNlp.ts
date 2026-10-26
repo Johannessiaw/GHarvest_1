@@ -84,7 +84,16 @@ export function normalizeGhanaianSpeech(rawText: string): NormalizedResult {
   // Sort keys by length descending to match multi-word phrases first
   const sortedKeys = Object.keys(ASR_CORRECTIONS_DICT).sort((a, b) => b.length - a.length);
 
+  const TWI_CROP_WORDS = new Set([
+    'aburo', 'aburoo', 'bankye', 'bayere', 'bayeri', 'borode', 'borodee', 'mako',
+    'gyeene', 'geene', 'emo', 'kooko', 'kookoo', 'nkatie', 'asee', 'mankani',
+    'nkruma', 'nsusuwa', 'aborobe'
+  ]);
+
   for (const errorKey of sortedKeys) {
+    if (isTwi && TWI_CROP_WORDS.has(errorKey.toLowerCase())) {
+      continue;
+    }
     try {
       const regex = createSafeRegex(errorKey, 'gi');
       if (regex.test(normalizedText)) {

@@ -163,7 +163,14 @@ const ALLOWED_INTENTS = new Set([
 function answerSimpleOrBasicQuestionClient(
   transcript: string,
   _detectedTone: DetectedHumanTone
-): { response: string; reasoning: string; completedThought: string; confidence: number } | null {
+): {
+  response: string;
+  reasoning: string;
+  completedThought: string;
+  confidence: number;
+  detectedLanguage?: 'en-GH' | 'ak-GH' | 'ga-GH' | 'ee-GH' | 'pcm-GH';
+  detectedLanguageName?: string;
+} | null {
   const text = transcript.trim();
   const lower = text.toLowerCase().replace(/[?!.,]+$/, '');
 
@@ -598,6 +605,8 @@ function answerSimpleOrBasicQuestionClient(
   ) {
     return {
       confidence: 0.99,
+      detectedLanguage: 'ak-GH',
+      detectedLanguageName: 'Twi (Akan)',
       reasoning: "User greeted 'Wo ho te sɛn' / 'Ɛte sɛn' (How are you?) in Akan/Twi.",
       completedThought: 'Warm conversational Akan/Twi greeting reply.',
       response: 'Me ho yɛ paa, medaase! Wo nso, wo ho te sɛn? Me bɔ mmɔden sɛ mɛboa wo wɔ GHarvest ha.',
@@ -613,6 +622,8 @@ function answerSimpleOrBasicQuestionClient(
   ) {
     return {
       confidence: 0.99,
+      detectedLanguage: 'ak-GH',
+      detectedLanguageName: 'Twi (Akan)',
       reasoning: "User asked for Kofi's name in Akan/Twi ('Wo din de sɛn').",
       completedThought: 'Introduce Kofi in natural fluent Twi.',
       response: 'Me din de Kofi! Mewɔ ha sɛ mɛboa wo ama woatumi atɔ na woatɔn nnuane, ahwehwɛ lori, na woahwɛ w\'order yiye.',
@@ -627,6 +638,8 @@ function answerSimpleOrBasicQuestionClient(
   ) {
     return {
       confidence: 0.99,
+      detectedLanguage: 'ak-GH',
+      detectedLanguageName: 'Twi (Akan)',
       reasoning: 'User offered traditional Akan time-of-day greeting.',
       completedThought: 'Traditional Akan time-of-day response.',
       response: 'Yaa agya / Yaa ɛna! Akwaaba pa ara. Wo ho te sɛn? Ɛdeɛn na me nyɛ mma wo nnɛ wɔ GHarvest ha?',
@@ -642,6 +655,8 @@ function answerSimpleOrBasicQuestionClient(
   ) {
     return {
       confidence: 0.99,
+      detectedLanguage: 'ak-GH',
+      detectedLanguageName: 'Twi (Akan)',
       reasoning: 'User inquired about produce price in Akan/Twi.',
       completedThought: 'Produce pricing check in Twi.',
       response: 'Wopɛ sɛ wohwɛ aburoo, ntoosi, anaa bayere boɔ? Kyerɛ me adeɛ a wopɛ na mɛka n\'akontabuo ne ne boɔ a ɛda gua no so akyerɛ wo seesei ara.',
@@ -652,6 +667,8 @@ function answerSimpleOrBasicQuestionClient(
   if (lower.includes('ɛyɛ den dodo') || lower.includes('eye den dodo')) {
     return {
       confidence: 0.99,
+      detectedLanguage: 'ak-GH',
+      detectedLanguageName: 'Twi (Akan)',
       reasoning: 'User remarked that the price is too high in Akan/Twi.',
       completedThought: 'Respond to price concern in Akan/Twi.',
       response: 'Mete wo ase! Nnuane no boɔ yɛ den dodo a, yɛbɛtumi ahwehwɛ obi a ɔtɔn ne dea fam kakra ama wo wɔ gua no so.',
@@ -659,16 +676,23 @@ function answerSimpleOrBasicQuestionClient(
   }
 
   if (lower.includes('thank you') || lower.includes('medaase') || lower.includes('thanks')) {
+    const isTwiThanks = lower.includes('medaase');
     return {
       confidence: 0.99,
+      detectedLanguage: isTwiThanks ? 'ak-GH' : 'en-GH',
+      detectedLanguageName: isTwiThanks ? 'Twi (Akan)' : 'English (GH)',
       reasoning: 'User expressed gratitude.',
       completedThought: 'Acknowledge thanks graciously.',
-      response: "You are very welcome! Medaase pa ara. I'm always right here whenever you need anything.",
+      response: isTwiThanks
+        ? 'Ɛnyɛ hwee koraa, medaase pa ara! Mewɔ ha berɛ biara sɛ mɛboa wo.'
+        : "You are very welcome! Medaase pa ara. I'm always right here whenever you need anything.",
     };
   }
   if (lower.includes('speak twi') || lower.includes('say twi') || lower.includes('do you know twi')) {
     return {
       confidence: 0.99,
+      detectedLanguage: 'ak-GH',
+      detectedLanguageName: 'Twi (Akan)',
       reasoning: 'User asked about Twi language capability.',
       completedThought: 'Demonstrate Twi greeting.',
       response: 'Aane, meka Twi paa! Akwaaba, me din de Kofi. Ɛdeɛn na me nyɛ mma wo nnɛ?',
@@ -812,6 +836,7 @@ function classifyLocalIntentClient(
         ? 'bright, warm Ghanaian welcome'
         : 'warm, grounded, attentive',
       response: greetingResponse,
+      ...(isTwi ? { detectedLanguage: 'ak-GH' as const, detectedLanguageName: 'Twi (Akan)' } : {}),
     };
   }
 
@@ -916,11 +941,62 @@ function classifyLocalIntentClient(
     }
   }
 
-  // Akan / Twi Command Handlers
+  // Akan / Twi Command Handlers (unicode-safe regex without ASCII \b limitation on ɛ/ɔ)
   const isTwiVoiceCommand =
-    /\b(me pɛ|me pe|kyerɛ me|chere me|lori kɔ|lorry go|gua so|dwa so|fa kɔ|hwehwɛ|tɔn|sɛn na|m'order)\b/i.test(
+    /(?:^|\s|[.,!?])(me pɛ|me pe|kyerɛ me|chere me|lori kɔ|lorry go|gua so|dwa so|fa kɔ|hwehwɛ|tɔn|sɛn na|m'order|wo ho te|ete sɛn|aburoo|aburo|bayere|bayerɛ|borɔdeɛ)(?:$|\s|[.,!?])/i.test(
       lower
-    );
+    ) ||
+    lower.includes('me pɛ') ||
+    lower.includes('me pe') ||
+    lower.includes('kyerɛ me') ||
+    lower.includes('lori kɔ') ||
+    lower.includes('aburoo') ||
+    lower.includes('bayerɛ') ||
+    lower.includes('borɔdeɛ') ||
+    Boolean(detectedTwiCrop);
+
+  // Ghanaian Pidgin Command Handlers
+  const isPidginVoiceCommand =
+    /(?:^|\s|[.,!?])(dey|chale|abeg|sharp sharp|no wahala|make i|how far|wetin|i wan|you fit|dey come|dey go|koraa)(?:$|\s|[.,!?])/i.test(
+      lower
+    ) ||
+    lower.includes('sharp sharp') ||
+    lower.includes('i dey') ||
+    lower.includes('you dey') ||
+    lower.includes('no wahala') ||
+    lower.includes('how far');
+
+  // Ghanaian Pidgin Intent Handler
+  if (isPidginVoiceCommand) {
+    const cropName = detectedCrop || 'yam';
+    const location = detectedTown ? ` for ${detectedTown}` : '';
+    const qtyText = quantity ? `${quantity} bags of ` : '';
+    return {
+      type: 'compound_task',
+      transcript,
+      confidence: 0.98,
+      route: 'marketplace',
+      action: 'search_listings',
+      entities: {
+        product: cropName,
+        ...(detectedTown ? { location: detectedTown } : {}),
+        ...(quantity ? { quantity } : {}),
+      },
+      missingInformation: [],
+      requiresConfirmation: false,
+      reasoning: `User requested ${cropName} in Ghanaian Pidgin.`,
+      isIncompleteSentence: false,
+      completedThought: `Search for ${cropName} in marketplace with Pidgin dialogue flow.`,
+      detectedTone,
+      toneConfidence: 0.95,
+      emotionalContext: 'User is communicating in conversational Ghanaian Pidgin.',
+      shouldTakeDeepBreath: false,
+      vocalStyle: 'relaxed, authentic Ghanaian Pidgin flow',
+      response: `I dey hear you sharp sharp! Make I check the marketplace for ${qtyText}${cropName}${location} give you now now. Escrow dey protect your money full-time.`,
+      detectedLanguage: 'pcm-GH',
+      detectedLanguageName: 'Ghanaian Pidgin',
+    };
+  }
 
   // Twi Marketplace / Buy / Search produce
   if (
@@ -930,6 +1006,8 @@ function classifyLocalIntentClient(
       lower.includes('kyerɛ me') ||
       lower.includes('gua so') ||
       lower.includes('hwehwɛ') ||
+      lower.includes('tɔ') ||
+      lower.includes('to') ||
       detectedTwiCrop) &&
     !lower.includes('tɔn') &&
     !lower.includes('lori')
@@ -957,8 +1035,10 @@ function classifyLocalIntentClient(
       shouldTakeDeepBreath: false,
       vocalStyle: 'warm, fluent Akan business cadence',
       response: detectedCrop
-        ? `Merubue gua no so ama wo ahwɛ ${detectedCrop}. GHarvest bɛbɔ wo sika ho ban wɔ escrow mu!`
+        ? `Merubue gua no so ama wo ahwɛ ${detectedTwiCrop || detectedCrop}. GHarvest bɛbɔ wo sika ho ban wɔ escrow mu!`
         : 'Merubue gua no so ama wo seesei ara ama woahwɛ nnuane a ɛwɔ hɔ nyinaa.',
+      detectedLanguage: 'ak-GH',
+      detectedLanguageName: 'Twi (Akan)',
     };
   }
 
@@ -986,6 +1066,8 @@ function classifyLocalIntentClient(
       response: detectedCrop
         ? `Merubue kwan ama woatumi atɔn wo ${detectedCrop} wɔ GHarvest so ntɛm ara.`
         : "Merubue baabi a wobɛtumi atɔn w'afifideɛ ne nnɔbaeɛ no nyinaa.",
+      detectedLanguage: 'ak-GH',
+      detectedLanguageName: 'Twi (Akan)',
     };
   }
 
@@ -1012,6 +1094,8 @@ function classifyLocalIntentClient(
       shouldTakeDeepBreath: false,
       vocalStyle: 'crisp, helpful Akan tone',
       response: `Merubue lori ne akwantuo nhyehyeɛ no ama woatumi afa nnuane akɔ ${dest}.`,
+      detectedLanguage: 'ak-GH',
+      detectedLanguageName: 'Twi (Akan)',
     };
   }
 
@@ -1035,6 +1119,8 @@ function classifyLocalIntentClient(
       shouldTakeDeepBreath: false,
       vocalStyle: 'reassuring Akan cadence',
       response: "Merubue w'order ne wo sika a ɛhyɛ escrow mu no nyinaa seesei ara.",
+      detectedLanguage: 'ak-GH',
+      detectedLanguageName: 'Twi (Akan)',
     };
   }
 
@@ -1353,7 +1439,7 @@ export async function classifyKofiIntent(
     });
 
     const timeoutPromise = new Promise<Response>((_, reject) => {
-      const t = setTimeout(() => reject(new Error('Network intent timeout')), 4500);
+      const t = setTimeout(() => reject(new Error('Network intent timeout')), 18000);
       signal?.addEventListener('abort', () => clearTimeout(t));
     });
 
@@ -1497,6 +1583,9 @@ function selectAndNormalizeTranscription(result: SpeechRecognitionResult): { tex
     if (/^(what|why|how|who|where|when|can you|could you|is there|are there|calculate|tell me)\b/i.test(lower)) score += 5;
     if (/\b\d+\s*(\+|\-|plus|minus|times|multiplied by|\*|divided by|\/|x)\s*\d+\b/i.test(lower)) score += 7;
     if (/\b\d+\s*(percent|\%)\b/i.test(lower)) score += 6;
+    // Twi / Akan and Pidgin vocabulary weighting
+    if (/(?:^|\s|[.,!?])(wo ho te|ete sɛn|ete sen|me pɛ|me pe|kyerɛ|chere|mema wo|wo din de|aburoo|aburo|bayere|bayerɛ|bankye|borɔdeɛ|borode|kookoo|gyene|mako|shito|ɛmo|mankani|ntoosi|ntoose|medaase|akwaaba|lori kɔ|dwa so|gua so)(?:$|\s|[.,!?])/i.test(lower) || lower.includes('wo ho te') || lower.includes('me pɛ') || lower.includes('aburoo')) score += 8;
+    if (/(?:^|\s|[.,!?])(dey|chale|abeg|sharp sharp|no wahala|how far|wetin)(?:$|\s|[.,!?])/i.test(lower) || lower.includes('sharp sharp') || lower.includes('i dey')) score += 7;
 
     if (score > bestScore) {
       bestScore = score;
