@@ -6,11 +6,20 @@
  * Requires a browser with SpeechRecognition or webkitSpeechRecognition support.
  */
 
-import { prepareGhanaianSpeechText, normalizeGhanaianSpeech } from './ghanaNlp';
+import {
+  prepareGhanaianSpeechText,
+  normalizeGhanaianSpeech,
+  chunkSpeechForTts,
+  detectSpeechContinuity,
+  SpeechContinuityResult,
+} from './ghanaNlp';
 import { KofiMemoryStore } from './memoryEngine';
 import { PermanentVoiceStore, PermanentVoiceConfig, DEFAULT_VOICE_CONFIG } from './voiceSettings';
 import { LocalAsrEngine } from './localAsrEngine';
 import { LocalAudioDsp } from './localAudioDsp';
+
+export { chunkSpeechForTts, detectSpeechContinuity };
+export type { SpeechContinuityResult };
 
 export type VoiceState =
   | 'standby'
@@ -1658,6 +1667,14 @@ export class KofiVoiceEngine {
   private synth: SpeechSynthesis | null = null;
   private currentUtterance: SpeechSynthesisUtterance | null = null;
   private currentAudioElement: HTMLAudioElement | null = null;
+  // Resilient Long-Form TTS Chunking & Playback Queue
+  private activeTtsChunks: string[] = [];
+  private activeTtsChunkIndex = 0;
+  private activeTtsTone?: DetectedHumanTone;
+  private activeTtsOnEnd?: () => void;
+  private activeTtsKeepAliveTimer: ReturnType<typeof setInterval> | null = null;
+  private activeTtsInterChunkTimer: ReturnType<typeof setTimeout> | null = null;
+  private activeTtsWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
   private rmsHistory: number[] = [];
   private pauseCount = 0;
 
@@ -2223,15 +2240,46 @@ export class KofiVoiceEngine {
     recognition.onend = () => {
       if (this.destroyed) return;
 
-      // Crucial: If browser closed recognition session while words were captured, commit them now!
       const pendingText = this.joinTranscript(this.currentFinal, this.currentPartial);
+
+      // If silenceTimer is actively running (waiting for user thinking pause or long conversation turn),
+      // do NOT prematurely finish! Restart recognition immediately so subsequent words append to currentFinal!
+      if (this.silenceTimer !== null) {
+        if (this.permanentMode || this.handsFree || this.running) {
+          this.clearRestartTimer();
+          this.recognitionRestartTimer = setTimeout(() => {
+            if (this.destroyed || this.speaking || this.isSystemSpeakingOrEchoWindow()) return;
+            this.running = true;
+            this.startRecognitionInstance();
+          }, 40);
+        }
+        return;
+      }
+
+      // If there is pending speech that ended with an incomplete thought, grant extra silence pause
       if (
         pendingText &&
-        pendingText !== this.lastSubmitted &&
         !this.isSystemSpeakingOrEchoWindow() &&
         !this.isEchoOfSystemSpeech(pendingText)
       ) {
-        this.finishTurn(pendingText);
+        const continuity = detectSpeechContinuity(pendingText, this.silenceTimeoutMs);
+        if (continuity.isIncomplete) {
+          this.scheduleEndpoint(false, continuity.recommendedPauseMs);
+          if (this.permanentMode || this.handsFree || this.running) {
+            this.clearRestartTimer();
+            this.recognitionRestartTimer = setTimeout(() => {
+              if (this.destroyed || this.speaking || this.isSystemSpeakingOrEchoWindow()) return;
+              this.running = true;
+              this.startRecognitionInstance();
+            }, 40);
+          }
+          return;
+        }
+
+        // Only finalize if thought is complete and not already submitted
+        if (pendingText !== this.lastSubmitted) {
+          this.finishTurn(pendingText);
+        }
       }
 
       // Permanent Voice & Hands-Free auto-restart: Keep listening continuously without dropping
@@ -2276,16 +2324,32 @@ export class KofiVoiceEngine {
   private scheduleEndpoint(isFastTurn = false, customDelayMs?: number): void {
     this.clearSilenceTimer();
 
-    // Natural human pause detection: 650ms for completed final clauses, 850ms for continuous speech
-    const defaultDelay = isFastTurn ? Math.max(650, this.silenceTimeoutMs * 0.85) : Math.max(850, this.silenceTimeoutMs);
-    const waitMs = customDelayMs !== undefined ? customDelayMs : defaultDelay;
+    const text = this.joinTranscript(this.currentFinal, this.currentPartial);
+    const continuity = detectSpeechContinuity(text, this.silenceTimeoutMs);
+
+    // Natural human pause detection with adaptive continuity support:
+    // - Incomplete sentences ("and...", "na..."): 1750ms+
+    // - Long conversation / multi-sentence: 1250ms+
+    // - Fast turns / crisp answers: 650ms-750ms
+    let waitMs: number;
+    if (customDelayMs !== undefined) {
+      waitMs = customDelayMs;
+    } else if (continuity.isIncomplete) {
+      waitMs = continuity.recommendedPauseMs;
+    } else if (continuity.isLongConversation) {
+      waitMs = continuity.recommendedPauseMs;
+    } else if (isFastTurn) {
+      waitMs = Math.max(650, this.silenceTimeoutMs * 0.85);
+    } else {
+      waitMs = continuity.recommendedPauseMs;
+    }
 
     this.silenceTimer = setTimeout(() => {
       if (!this.running || this.destroyed || this.speaking) return;
 
-      const text = this.joinTranscript(this.currentFinal, this.currentPartial);
+      const currentText = this.joinTranscript(this.currentFinal, this.currentPartial);
 
-      if (!text) return;
+      if (!currentText) return;
 
       const duration = this.speechStartedAt ? Date.now() - this.speechStartedAt : 0;
 
@@ -2780,23 +2844,86 @@ export class KofiVoiceEngine {
       return;
     }
 
-    // Register clean spoken text into echo suppression buffer
-    const cleanText = text
-      .replace(/<breath>|<sigh>|<laugh>|<gasp>/gi, '')
-      .replace(/\|yeah\||\|mhm\|/gi, '')
-      .replace(/[*_#`~[\]]/g, '')
-      .replace(/https?:\/\/\S+/g, 'link')
-      .replace(/\n+/g, ' ')
-      .trim();
+    // Clear any previous ongoing TTS queue
+    this.clearTtsTimers();
 
-    this.registerSystemSpokenText(cleanText);
-    const preparedText = prepareGhanaianSpeechText(cleanText);
-    this.registerSystemSpokenText(preparedText);
+    // 1. Chunk long conversational text into natural prosodic sentences and clauses
+    const chunks = chunkSpeechForTts(text, 130);
+    if (chunks.length === 0) {
+      this.setSpeaking(false);
+      onEnd?.();
+      return;
+    }
 
-    // Play subtle audio earcon cue
+    this.activeTtsChunks = chunks;
+    this.activeTtsChunkIndex = 0;
+    this.activeTtsTone = tone;
+    this.activeTtsOnEnd = onEnd;
+
+    // Subtle audio cue before speech begins
     this.playChime();
 
-    const utterance = new SpeechSynthesisUtterance(preparedText);
+    // Start 3.5s resume keep-alive interval to bypass browser 15s freeze bug
+    this.startTtsKeepAlive();
+
+    // Begin speaking chunks sequentially
+    this.playNextTtsChunk();
+  }
+
+  private startTtsKeepAlive(): void {
+    if (this.activeTtsKeepAliveTimer) clearInterval(this.activeTtsKeepAliveTimer);
+    this.activeTtsKeepAliveTimer = setInterval(() => {
+      if (this.synth && (this.speaking || this.synth.speaking)) {
+        try {
+          if (this.synth.paused) {
+            this.synth.resume();
+          } else {
+            this.synth.pause();
+            this.synth.resume();
+          }
+        } catch {}
+      } else {
+        if (this.activeTtsKeepAliveTimer) {
+          clearInterval(this.activeTtsKeepAliveTimer);
+          this.activeTtsKeepAliveTimer = null;
+        }
+      }
+    }, 3500);
+  }
+
+  private clearTtsTimers(): void {
+    if (this.activeTtsKeepAliveTimer) {
+      clearInterval(this.activeTtsKeepAliveTimer);
+      this.activeTtsKeepAliveTimer = null;
+    }
+    if (this.activeTtsInterChunkTimer) {
+      clearTimeout(this.activeTtsInterChunkTimer);
+      this.activeTtsInterChunkTimer = null;
+    }
+    if (this.activeTtsWatchdogTimer) {
+      clearTimeout(this.activeTtsWatchdogTimer);
+      this.activeTtsWatchdogTimer = null;
+    }
+  }
+
+  private playNextTtsChunk(): void {
+    if (this.destroyed || !this.synth) {
+      this.finishTtsQueue();
+      return;
+    }
+
+    if (this.activeTtsChunkIndex >= this.activeTtsChunks.length) {
+      this.finishTtsQueue();
+      return;
+    }
+
+    const chunk = this.activeTtsChunks[this.activeTtsChunkIndex];
+    const isLastChunk = this.activeTtsChunkIndex === this.activeTtsChunks.length - 1;
+
+    // Register each chunk into system echo bank for mic isolation
+    this.registerSystemSpokenText(chunk);
+
+    const utterance = new SpeechSynthesisUtterance(chunk);
     this.currentUtterance = utterance;
 
     try {
@@ -2822,6 +2949,7 @@ export class KofiVoiceEngine {
     // Emotional Prosody Modulation: Adjust speech speed & pitch to suit human emotion
     let rate = 1.02;
     let pitch = 1.0;
+    const tone = this.activeTtsTone;
     if (tone === 'anxious' || tone === 'overwhelmed') {
       rate = 0.94; // Soothing, calm, unhurried
       pitch = 0.98;
@@ -2845,57 +2973,48 @@ export class KofiVoiceEngine {
     utterance.pitch = Number(Math.min(1.3, Math.max(0.7, pitch * configPitch)).toFixed(2));
     utterance.volume = 1.0;
 
-    let ended = false;
-    let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
-    let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+    let chunkEnded = false;
 
-    const finish = () => {
-      if (ended) return;
-      ended = true;
-      if (keepAliveTimer) clearInterval(keepAliveTimer);
-      if (watchdogTimer) clearTimeout(watchdogTimer);
-      try {
-        (window as any).__kofiActiveUtterance = null;
-      } catch {}
-      this.currentUtterance = null;
-      this.lastSystemSpeechEndedAt = Date.now();
-      this.setSpeaking(false);
-      onEnd?.();
+    const onChunkComplete = () => {
+      if (chunkEnded) return;
+      chunkEnded = true;
+
+      if (isLastChunk) {
+        this.finishTtsQueue();
+      } else {
+        this.activeTtsChunkIndex++;
+        // Natural human micro-breathing pause (90ms-120ms) between sentence chunks
+        this.activeTtsInterChunkTimer = setTimeout(() => {
+          this.playNextTtsChunk();
+        }, 100);
+      }
     };
 
     utterance.onstart = () => {
       this.setSpeaking(true);
     };
 
-    utterance.onend = finish;
+    utterance.onend = onChunkComplete;
+
     utterance.onerror = (e) => {
       if (e.error === 'canceled' || e.error === 'interrupted') {
         return;
       }
-      finish();
+      onChunkComplete();
     };
 
-    keepAliveTimer = setInterval(() => {
-      if (!ended && this.synth && this.synth.speaking) {
-        this.synth.pause();
-        this.synth.resume();
-      } else {
-        if (keepAliveTimer) clearInterval(keepAliveTimer);
-      }
-    }, 4500);
-
-    watchdogTimer = setTimeout(() => {
-      if (!ended && this.synth) {
+    // Failsafe watchdog timer for stuck utterances
+    if (this.activeTtsWatchdogTimer) clearTimeout(this.activeTtsWatchdogTimer);
+    const estimatedWordTimeMs = Math.max(3000, chunk.split(/\s+/).length * 550);
+    this.activeTtsWatchdogTimer = setTimeout(() => {
+      if (!chunkEnded && this.synth) {
         if (this.synth.paused) {
           try {
             this.synth.resume();
           } catch {}
         }
-        if (!this.speaking) {
-          this.setSpeaking(true);
-        }
       }
-    }, 250);
+    }, estimatedWordTimeMs);
 
     setTimeout(() => {
       try {
@@ -2904,9 +3023,23 @@ export class KofiVoiceEngine {
         }
         this.synth?.speak(utterance);
       } catch {
-        finish();
+        onChunkComplete();
       }
-    }, 35);
+    }, 25);
+  }
+
+  private finishTtsQueue(): void {
+    this.clearTtsTimers();
+    this.activeTtsChunks = [];
+    this.activeTtsChunkIndex = 0;
+    try {
+      (window as any).__kofiActiveUtterance = null;
+    } catch {}
+    this.currentUtterance = null;
+    this.lastSystemSpeechEndedAt = Date.now();
+    this.setSpeaking(false);
+    this.activeTtsOnEnd?.();
+    this.activeTtsOnEnd = undefined;
   }
 
   /**
@@ -2915,6 +3048,10 @@ export class KofiVoiceEngine {
   stopAudioPlayback(): void {
     this.isPlayingThinkingAck = false;
     this.lastSystemSpeechEndedAt = Date.now();
+    this.clearTtsTimers();
+    this.activeTtsChunks = [];
+    this.activeTtsChunkIndex = 0;
+    this.activeTtsOnEnd = undefined;
     if (this.currentAudioElement) {
       try {
         this.currentAudioElement.pause();

@@ -3,7 +3,7 @@ import { ASR_CORRECTIONS_DICT, GHANAIAN_CROPS, GHANAIAN_TOWNS, GHANAIAN_UNITS } 
 export interface NormalizedResult {
   raw: string;
   normalized: string;
-  detectedLanguage: 'en-GH' | 'ak-GH' | 'ga-GH' | 'ee-GH' | 'mixed';
+  detectedLanguage: 'en-GH' | 'ak-GH' | 'ga-GH' | 'ee-GH' | 'pcm-GH' | 'mixed';
   correctionsApplied: { from: string; to: string }[];
   entities: {
     crop?: string;
@@ -252,3 +252,179 @@ export function prepareGhanaianSpeechText(text: string): string {
   }
   return output;
 }
+
+export interface SpeechContinuityResult {
+  isIncomplete: boolean;
+  isLongConversation: boolean;
+  wordCount: number;
+  reason?: string;
+  recommendedPauseMs: number;
+}
+
+/**
+ * Analyzes spoken speech in real-time to detect conversational continuation vs completion.
+ * Prevents prematurely cutting off users during mid-sentence thinking pauses,
+ * compound clauses, or extended conversational narratives.
+ */
+export function detectSpeechContinuity(rawText: string, defaultPauseMs = 750): SpeechContinuityResult {
+  if (!rawText || !rawText.trim()) {
+    return {
+      isIncomplete: false,
+      isLongConversation: false,
+      wordCount: 0,
+      recommendedPauseMs: defaultPauseMs,
+    };
+  }
+
+  const text = rawText.trim();
+  const words = text.split(/\s+/).filter(Boolean);
+  const wordCount = words.length;
+  const lastWord = (words[words.length - 1] || '').toLowerCase().replace(/[^a-z0-9ɛɔ]/gi, '');
+
+  // 1. Trailing conjunctions, prepositions, or hesitation markers indicating speaker has more to say:
+  // English:
+  const ENGLISH_CONTINUATIONS = new Set([
+    'and', 'because', 'but', 'so', 'then', 'also', 'or', 'if', 'when', 'while',
+    'after', 'before', 'since', 'although', 'though', 'even', 'plus', 'with',
+    'for', 'to', 'like', 'as', 'about', 'that', 'which', 'where', 'whose', 'who',
+    'actually', 'meanwhile', 'furthermore', 'however', 'uh', 'um', 'er', 'ah', 'well'
+  ]);
+
+  // Twi (Akan):
+  const TWI_CONTINUATIONS = new Set([
+    'na', 'nanso', 'efisɛ', 'efise', 'sɛ', 'se', 'enti', 'afei', 'bio', 'anaa',
+    'ne', 'kasa', 'kyerɛ', 'kyere', 'mma', 'wɔ', 'wo', 'mu', 'ho', 'so', 'nso'
+  ]);
+
+  // Ghanaian Pidgin:
+  const PIDGIN_CONTINUATIONS = new Set([
+    'con', 'dey', 'say', 'so tey', 'wey', 'make', 'na so', 'plus', 'for', 'den'
+  ]);
+
+  let isIncomplete = false;
+  let reason: string | undefined;
+
+  // Check punctuation markers
+  if (text.endsWith('...') || text.endsWith('…') || text.endsWith(',') || text.endsWith('—') || text.endsWith('--')) {
+    isIncomplete = true;
+    reason = 'Trailing hesitation or clause separator';
+  } else if (ENGLISH_CONTINUATIONS.has(lastWord) || TWI_CONTINUATIONS.has(lastWord) || PIDGIN_CONTINUATIONS.has(lastWord)) {
+    isIncomplete = true;
+    reason = `Trailing connecting word "${lastWord}"`;
+  }
+
+  // 2. Identify long conversations:
+  // User has spoken >= 8 words or multiple sentences/clauses
+  const clauseCount = (text.match(/[,;:.!?]|\b(and|because|nanso|efisɛ|enti|but|also)\b/gi) || []).length;
+  const isLongConversation = wordCount >= 8 || clauseCount >= 2;
+
+  // Adaptive endpoint calculation:
+  // - If user ended on an incomplete connector ("and...", "na..."), give 1800ms to allow them to formulate their thought
+  // - If it's a long conversation with multi-clause context, give 1350ms so they can comfortably breathe between sentences
+  // - If it's a short, finished utterance ("Tomatoes", "Yes", "Medaase"), give crisp 650ms-750ms
+  let recommendedPauseMs = defaultPauseMs;
+  if (isIncomplete) {
+    recommendedPauseMs = Math.max(1750, Math.round(defaultPauseMs * 2.3));
+  } else if (isLongConversation) {
+    recommendedPauseMs = Math.max(1250, Math.round(defaultPauseMs * 1.6));
+  } else {
+    recommendedPauseMs = Math.max(650, defaultPauseMs);
+  }
+
+  return {
+    isIncomplete,
+    isLongConversation,
+    wordCount,
+    reason,
+    recommendedPauseMs,
+  };
+}
+
+/**
+ * Splits long conversational text into natural prosodic chunks for Web Speech API and TTS engines.
+ * Solves the Web Speech API 15-second cutoff / memory freeze bug,
+ * maintains human breathing cadence, and formats Ghanaian currency/towns cleanly.
+ */
+export function chunkSpeechForTts(rawText: string, maxChunkLength = 130): string[] {
+  if (!rawText || !rawText.trim()) return [];
+
+  // 1. Clean markdown, emojis, HTML, and audio markup tags (<breath>, <sigh>, |yeah|, etc.)
+  let text = rawText
+    .replace(/<breath>|<sigh>|<laugh>|<gasp>/gi, '')
+    .replace(/\|yeah\||\|mhm\|/gi, '')
+    .replace(/[*_#`~[\]()]/g, ' ')
+    .replace(/https?:\/\/\S+/g, 'link')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Apply Ghanaian pronunciation and currency formatting to ensure natural phonetics
+  text = prepareGhanaianSpeechText(text);
+
+  if (!text) return [];
+
+  // If text is already comfortably short and doesn't contain multiple sentence terminators
+  if (text.length <= maxChunkLength && !/[.?!;]\s+[A-Z0-9\u0190\u0186]/i.test(text)) {
+    return [text];
+  }
+
+  // 2. Primary split: Sentence-level boundaries (. , ? , ! , ;\n)
+  const rawSentences = text
+    .split(/(?<=[.?!;])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const chunks: string[] = [];
+
+  for (const sentence of rawSentences) {
+    if (sentence.length <= maxChunkLength) {
+      chunks.push(sentence);
+      continue;
+    }
+
+    // 3. Secondary split: Clause-level boundaries (commas, dashes, or major conjunctions)
+    const clauses = sentence
+      .split(/(?<=[,:\u2014\u2013]|\s+-\s+)\s+|(?<=\b(?:and|because|nanso|efisɛ|enti|but|also|so tey)\b)\s+/i)
+      .map((c) => c.trim())
+      .filter(Boolean);
+
+    let current = '';
+    for (const clause of clauses) {
+      if (!current) {
+        current = clause;
+      } else if ((current + ' ' + clause).length <= maxChunkLength) {
+        current = current + ' ' + clause;
+      } else {
+        chunks.push(current);
+        current = clause;
+      }
+    }
+    if (current) {
+      chunks.push(current);
+    }
+  }
+
+  // Fallback: If any chunk is still longer than maxChunkLength * 1.5, break cleanly at word boundaries
+  const finalChunks: string[] = [];
+  for (const chunk of chunks) {
+    if (chunk.length <= maxChunkLength * 1.5) {
+      finalChunks.push(chunk);
+    } else {
+      const words = chunk.split(/\s+/);
+      let cur = '';
+      for (const w of words) {
+        if (!cur) {
+          cur = w;
+        } else if ((cur + ' ' + w).length <= maxChunkLength) {
+          cur = cur + ' ' + w;
+        } else {
+          finalChunks.push(cur + '.');
+          cur = w;
+        }
+      }
+      if (cur) finalChunks.push(cur);
+    }
+  }
+
+  return finalChunks.filter((c) => c.length > 0 && /[a-zA-Z0-9\u00C0-\u024F\u0250-\u02AF]/.test(c));
+}
+

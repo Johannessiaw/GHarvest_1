@@ -187,23 +187,31 @@ export const GhanaNlpStudioView: React.FC<GhanaNlpStudioViewProps> = ({ onSpeakS
               <div className="flex flex-wrap gap-1.5">
                 {[
                   {
+                    label: 'Twi: Wo ho te sɛn',
+                    val: 'who hotel sen',
+                  },
+                  {
+                    label: 'Twi: Me pɛ aburoo',
+                    val: 'may per say me to aburoo in e jura',
+                  },
+                  {
+                    label: 'Twi: Wo din de sɛn',
+                    val: 'who ding day sen',
+                  },
+                  {
+                    label: 'Pidgin: Sharp Sharp',
+                    val: 'I dey need 20 bags of yam sharp sharp',
+                  },
+                  {
                     label: 'Techiman + Kumasi',
                     val: 'I want 50 crates of tech man tomatoes transported to commasy',
-                  },
-                  {
-                    label: 'Ejura + Maize',
-                    val: 'Me pe 20 bags of aburoo in e jura right now',
-                  },
-                  {
-                    label: 'Takoradi + Haulage',
-                    val: 'Book a taco radi freight haulage truck to accrah',
                   },
                   {
                     label: 'Sunyani + Escrow',
                     val: 'Hold my money in momo escrow for sun yanny plantain',
                   },
                   {
-                    label: 'Atebubu + Yam',
+                    label: 'Atebubu + Bayere',
                     val: 'Can i get thirty tubers of bayere from ate bubu market',
                   },
                 ].map((sample, idx) => (

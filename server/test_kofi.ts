@@ -211,7 +211,18 @@ async function runTests() {
   const dspFeatures = LocalAudioDsp.extractFrameFeatures(dummyFrame);
   assert(
     dspFeatures.mfcc.length === 13 && dspFeatures.melSpectrogram.length === 40 && dspFeatures.energy > 0,
-    '21. Local DSP extracts 40-band log-mel energies and 13 MFCC coefficients locally'
+    '21a. Local DSP extracts 40-band log-mel energies and 13 MFCC coefficients locally'
+  );
+
+  // 21b. Local Deterministic Acoustic DTW Decoder (Zero API)
+  const decodedAudio = localAsr.decodeAudioPcm(dummyPcm);
+  assert(
+    decodedAudio.zeroApi === true &&
+      typeof decodedAudio.transcript === 'string' &&
+      decodedAudio.confidence >= 0.7 &&
+      decodedAudio.durationMs < 60,
+    `21b. Local Acoustic DTW engine decodes audio waveform locally in ${decodedAudio.durationMs}ms with zero API calls`,
+    JSON.stringify(decodedAudio)
   );
 
   // 22. Twi Greeting ASR Approximation & Language Identification
@@ -370,6 +381,103 @@ async function runTests() {
     assert(true, '31. Server endpoint verified (offline bypass)');
   }
 
+  // 32. Long-Turn Speech Continuity & Adaptive Silence Endpointing
+  const { detectSpeechContinuity, chunkSpeechForTts } = await import('../src/services/voiceEngine');
+
+  const continuityEnglish = detectSpeechContinuity('I want to see the tomato prices in Techiman and');
+  assert(
+    continuityEnglish.isIncomplete && continuityEnglish.recommendedPauseMs >= 1600,
+    '32a. English Trailing Conjunction ("and"): Detected as incomplete with extended pause (>=1600ms) to prevent cutting off speaker',
+    JSON.stringify(continuityEnglish)
+  );
+
+  const continuityTwi = detectSpeechContinuity('Me pɛ sɛ me tɔ aburoo wɔ Ejura na');
+  assert(
+    continuityTwi.isIncomplete && continuityTwi.recommendedPauseMs >= 1600,
+    '32b. Twi Trailing Conjunction ("na"): Detected as incomplete with extended pause (>=1600ms) for Akan conversation continuity',
+    JSON.stringify(continuityTwi)
+  );
+
+  const continuityPidgin = detectSpeechContinuity('I dey need 20 bags of yam say');
+  assert(
+    continuityPidgin.isIncomplete && continuityPidgin.recommendedPauseMs >= 1600,
+    '32c. Pidgin Trailing Conjunction ("say"): Detected as incomplete with extended pause (>=1600ms)',
+    JSON.stringify(continuityPidgin)
+  );
+
+  const continuityLong = detectSpeechContinuity(
+    'I have 80 bags of maize in Ejura and I am looking for a reliable truck to Kumasi market by Friday'
+  );
+  assert(
+    continuityLong.isLongConversation && continuityLong.recommendedPauseMs >= 1200,
+    '32d. Long Multi-Clause Utterance: Detected as long conversation with natural breathing allowance (>=1200ms)',
+    JSON.stringify(continuityLong)
+  );
+
+  const continuityShort = detectSpeechContinuity('Wo ho te sɛn');
+  assert(
+    !continuityShort.isIncomplete && !continuityShort.isLongConversation && continuityShort.recommendedPauseMs <= 850,
+    '32e. Concise Completed Turn: Crisp turn-taking delay (<=850ms) for swift conversational response',
+    JSON.stringify(continuityShort)
+  );
+
+  // 33. Resilient Long-Form TTS Chunking & Micro-Breath Pipeline
+  const longTtsSource =
+    'Akwaaba! <breath> I have checked the market prices for you in Techiman and Ejura. Currently, fresh tomatoes in Techiman are selling for GH₵ 450 per large crate with high supply from Tuobodom. Meanwhile, maize in Ejura is trading at GH₵ 240 per 100kg bag. If you would like, I can immediately connect you with a verified refrigerated truck to haul your produce safely to Kumasi or Accra.';
+  const ttsChunks = chunkSpeechForTts(longTtsSource, 130);
+
+  assert(
+    ttsChunks.length >= 3 && ttsChunks.every((c) => c.length <= 145),
+    `33a. Long TTS Text Chunking: Successfully segmented long text into ${ttsChunks.length} natural prosodic chunks (all <= 145 chars)`,
+    JSON.stringify(ttsChunks)
+  );
+
+  const chunkPhoneticsOk = ttsChunks.some((c) => c.includes('Ghana cedis') && (c.includes('Eh-joo-rah') || c.includes('Teh-chee-mahn')));
+  assert(
+    chunkPhoneticsOk,
+    '33b. Ghanaian Phonetics & Currency in TTS Chunks: "GH₵" converted to "Ghana cedis" and towns phonetically resolved across chunks',
+    JSON.stringify(ttsChunks)
+  );
+
+  const tagsCleaned = ttsChunks.every((c) => !c.includes('<breath>') && !c.includes('<sigh>') && !c.includes('|yeah|'));
+  assert(
+    tagsCleaned,
+    '33c. Markup Sanitization: Audio tags (<breath>, <sigh>, |yeah|) cleanly stripped from synthesized speech chunks',
+    JSON.stringify(ttsChunks)
+  );
+
+  // 34. End-to-End Long Conversation Processing & Freight Resolution
+  const longConversationText =
+    'I have 80 bags of maize in Ejura and I am looking for a reliable truck that can transport everything to Kumasi market.';
+  const longTurnResult = await GeminiService.localKofiEngine(longConversationText, {}, 'en-GH');
+
+  assert(
+    longTurnResult.updatedMemory?.product === 'Maize' &&
+      longTurnResult.updatedMemory?.quantity === 80 &&
+      longTurnResult.updatedMemory?.pickupLocation === 'Ejura' &&
+      longTurnResult.updatedMemory?.deliveryLocation === 'Kumasi' &&
+      longTurnResult.actionCard?.type === 'logistics_estimate',
+    '34a. Long Conversational Turn Comprehension: Simultaneously resolved product (Maize), quantity (80), origin (Ejura), and destination (Kumasi) in one turn',
+    JSON.stringify(longTurnResult)
+  );
+
+  const longTurnTtsChunks = chunkSpeechForTts(longTurnResult.reply, 130);
+  assert(
+    longTurnTtsChunks.length >= 2,
+    `34b. Long Response TTS Preparation: Engine response segmented into ${longTurnTtsChunks.length} chunks ready for sequential audio queue without browser freeze`,
+    JSON.stringify(longTurnTtsChunks)
+  );
+
+  // 35. Long-Turn Twi Multi-Intent Dialogue Flow
+  const twiLongQuery = 'Akwaaba, me pɛ sɛ me tɔ aburoo wɔ Ejura na afei me hwehwɛ lori a ɛbɛfa akɔ Kumasi.';
+  const twiLongIntent = await classifyKofiIntent(twiLongQuery);
+  assert(
+    twiLongIntent.detectedLanguage === 'ak-GH' &&
+      twiLongIntent.response.length > 20,
+    '35. Long Spoken Twi Utterance: Accurately detected as ak-GH with comprehensive Akan response',
+    JSON.stringify(twiLongIntent)
+  );
+
   console.log(`\n🎉 Results: ${passed}/${total} verification tests passed!`);
   if (passed === total) {
     process.exit(0);
@@ -379,4 +487,5 @@ async function runTests() {
 }
 
 runTests();
+
 
