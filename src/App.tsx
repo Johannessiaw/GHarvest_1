@@ -136,11 +136,18 @@ export default function App() {
       return;
     }
 
+    // Dynamic Language Flow: Flow directly into detected language (Twi, Pidgin, Ga, Ewe, English)
+    if (intent.detectedLanguage && intent.detectedLanguage !== language) {
+      setLanguage(intent.detectedLanguage as SupportedLanguage);
+    }
+
     // 3. Append user spoken transcript
     const userMsg: VoiceMessage = {
       id: `user-${Date.now()}`,
       sender: 'user',
       normalizedText: intent.transcript,
+      detectedLanguage: intent.detectedLanguage as SupportedLanguage,
+      detectedLanguageName: intent.detectedLanguageName,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
@@ -149,6 +156,8 @@ export default function App() {
       id: `kofi-${Date.now()}`,
       sender: 'kofi',
       normalizedText: intent.response,
+      detectedLanguage: intent.detectedLanguage as SupportedLanguage,
+      detectedLanguageName: intent.detectedLanguageName,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       toolsUsed: ['Kofi-Intent', intent.action ? `Action:${intent.action}` : 'Navigation'],
       reasoning: intent.reasoning,

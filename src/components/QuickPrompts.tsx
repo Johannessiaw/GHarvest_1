@@ -13,12 +13,14 @@ export const QuickPrompts: React.FC<QuickPromptsProps> = ({
   onTriggerSearch,
 }) => {
   const prompts = [
+    { label: '🇬🇭 Twi: Wo ho te sɛn?', text: 'Wo ho te sɛn? Akwaaba, me din de Kwame Mensah.' },
+    { label: '🇬🇭 Twi: Techiman Ntoosi Boɔ', text: 'Ntoosi no boɔ yɛ sɛn wɔ Techiman gua so nnɛ?' },
+    { label: '🇬🇭 Twi: Lori Akwantuo (Kumasi)', text: 'Kyerɛ me lori a ɛbɛfa nnuane akɔ Kumasi ntɛm ara.' },
     { label: '🍅 Order Techiman Tomatoes', text: 'I need 50 crates of tomatoes from Techiman delivered to Kumasi.' },
-    { label: '🌽 Twi Order (20 Bags Maize)', text: 'Me pɛ 20 bags of maize, na ɛsɛ sɛ wɔde kɔ Kumasi.' },
+    { label: '🌽 Twi Order (20 Bags Maize)', text: 'Me pɛ sɛ me tɔ 20 bags of maize, na ɛsɛ sɛ wɔde kɔ Kumasi.' },
     { label: '📊 Live Market Prices', text: 'What is the current market price of tomatoes, maize and yam in Techiman and Kejetia?' },
     { label: '🚚 Transport Techiman to Accra', text: 'Calculate transport cost and route from Techiman to Accra for 50 crates.' },
     { label: '🇬🇭 History: Kwame Nkrumah', text: 'Who was Kwame Nkrumah and what was his contribution to Ghanaian agriculture?' },
-    { label: '🔗 Inspect MoFA Website', text: 'Inspect this URL https://mofa.gov.gh and summarize current agricultural policies.' },
     { label: '🔢 Calculate 450 * 18', text: 'Calculate 450 * 18 GHS for my transport ledger.' },
   ];
 

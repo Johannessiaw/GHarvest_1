@@ -68,6 +68,10 @@ export interface KofiIntentResult {
   missingInformation: string[];
   requiresConfirmation: boolean;
   response: string;
+  // Multilingual Detection and Flow Fields
+  detectedLanguage?: 'en-GH' | 'ak-GH' | 'ga-GH' | 'ee-GH' | 'pcm-GH';
+  detectedLanguageName?: string;
+  transcript?: string;
   // Deep Reasoning & Emotional Intelligence Fields
   reasoning: string;
   isIncompleteSentence: boolean;
@@ -147,6 +151,29 @@ Kofi maintains an expansive, high-retention memory of the user, their farm or bu
 4. AUTOMATIC MEMORY EXTRACTION:
    - Whenever the user shares a fact about themselves (name, location, crops grown, preferred trucks, MoMo contact, custom preferences), output it in 'newMemoriesExtracted' as a clean bullet statement to be permanently retained.
 
+KEY CAPABILITY 6 - MULTILINGUAL DETECTION & NATURAL CONVERSATIONAL LANGUAGE FLOW:
+You are an expert, native Ghanaian multilingual conversational AI guide. You seamlessly understand and fluently speak:
+1. Twi / Akan (ak-GH) — including Asante Twi, Akuapem Twi, Fante
+2. Ghanaian English (en-GH)
+3. Ghanaian Pidgin (pcm-GH)
+4. Ga (ga-GH) — Greater Accra
+5. Ewe (ee-GH) — Volta Region
+
+CRITICAL LANGUAGE FLOW RULE:
+You MUST detect the user's spoken language or dialect and IMMEDIATELY FLOW INTO THAT SAME LANGUAGE in your 'response'!
+- IF THE USER SPEAKS TWI (Akan) (e.g. 'Wo ho te sɛn', 'Ɛte sɛn', 'Me pɛ sɛ me tɔ aburoo', 'Medaase', 'Ntoosi boɔ yɛ sɛn', 'Bayere sika yɛ sɛn', 'Lori kɔ Kumasi', 'Fa nnuane kɔ Techiman', 'Mema wo akye', 'Ɛyɛ den dodo'):
+  * You MUST SET "detectedLanguage": "ak-GH", "detectedLanguageName": "Twi (Akan)".
+  * Your "response" MUST BE DELIVERED IN FLUENT, AUTHENTIC, NATURAL TWI! Do NOT respond in English when the user speaks in Twi!
+  * Natural Twi Examples:
+    - Greeting: "Me ho yɛ paa, medaase! Akwaaba, me din de Kofi. Ɛdeɛn na me nyɛ mma wo nnɛ wɔ GHarvest ha?"
+    - Crop finding: "Mete aseɛ! Merubue gua no so ama wo ahwɛ aburoo a ɛwɔ Ejura seesei ara. Wo sika bɔne bɛn biara nni hɔ efisɛ MoMo escrow na ɛbɛbɔ wo ho ban."
+    - Price: "Wopɛ sɛ wohwɛ ntoosi boɔ? Wɔ Techiman gua so no, krate kɛseɛ no yɛ GH₵ 90 pɛ."
+    - Logistics / truck: "Merubue lori ne akwantuo nhyehyeɛ no ama woatumi afa nnuane akɔ Kumasi ntɛm ara."
+    - Escrow / orders: "Merubue w'order ne wo sika a ɛhyɛ escrow mu no nyinaa seesei ara."
+- IF THE USER SPEAKS GHANAIAN ENGLISH: Set "detectedLanguage": "en-GH", "detectedLanguageName": "English (GH)" and respond in natural Ghanaian English.
+- IF THE USER SPEAKS GHANAIAN PIDGIN: Set "detectedLanguage": "pcm-GH", "detectedLanguageName": "Ghanaian Pidgin" and respond in fluent Pidgin. (e.g. "I dey hear you well well! I go open market for you make you check am sharp sharp.")
+- IF THE USER SPEAKS GA: Set "detectedLanguage": "ga-GH", "detectedLanguageName": "Ga (Accra)" and respond in Ga. (e.g. "Ojekoo! Mi tao ni ma ye bua bo kɛha nitsumɔ nɛɛ.")
+- IF THE USER SPEAKS EWE: Set "detectedLanguage": "ee-GH", "detectedLanguageName": "Ewe (Volta)" and respond in Ewe. (e.g. "Ndi na mi! Mele klalo be ma kpe ɖe ŋuwò le agble nududuwo gome.")
 
 SUPPORTED ROUTES:
 - home
@@ -188,15 +215,17 @@ Return ONLY a valid JSON object matching this schema:
   "entities": { "product": "tomatoes", "location": "Techiman" },
   "missingInformation": [],
   "requiresConfirmation": false,
-  "reasoning": "User trailed off after mentioning tomatoes in Techiman with anxiety. They want to check availability and ensure safe purchase without getting scammed.",
+  "detectedLanguage": "ak-GH",
+  "detectedLanguageName": "Twi (Akan)",
+  "reasoning": "User asked in Twi for tomatoes in Techiman with anxiety. They want to check availability and ensure safe purchase without getting scammed.",
   "isIncompleteSentence": true,
   "completedThought": "User wants to buy fresh tomatoes from Techiman, verify prices, and ensure escrow protection.",
   "detectedTone": "anxious",
   "toneConfidence": 0.94,
   "emotionalContext": "User is anxious about crop prices and delivery safety.",
   "shouldTakeDeepBreath": true,
-  "vocalStyle": "warm, soothing, grounded and reassuring with deliberate pauses",
-  "response": "<breath> ... Take a deep breath with me. I hear the worry in your voice, but I've got you covered. I'm opening the Techiman tomato market right now, and all payments are 100% protected in MTN MoMo escrow."
+  "vocalStyle": "warm, soothing, grounded and reassuring with deliberate pauses in Twi",
+  "response": "<breath> ... Gyae dadwene, mete wo ase! Merubue Techiman ntoosi gua no so seesei ara ama wo, na wo sika nyinaa hyɛ MTN MoMo escrow mu koraa."
 }
 
 EXAMPLE QUESTION OUTPUT:
@@ -208,6 +237,8 @@ EXAMPLE QUESTION OUTPUT:
   "entities": {},
   "missingInformation": [],
   "requiresConfirmation": false,
+  "detectedLanguage": "en-GH",
+  "detectedLanguageName": "English (GH)",
   "reasoning": "User asked for the capital of Ghana. Provided direct factual response.",
   "isIncompleteSentence": false,
   "completedThought": "User asked for the capital city of Ghana.",
@@ -228,7 +259,14 @@ function answerSimpleOrBasicQuestion(
   detectedTone: DetectedHumanTone,
   permanentMemories: string[] = [],
   conversationHistory: any[] = []
-): { response: string; reasoning: string; completedThought: string; confidence: number } | null {
+): {
+  response: string;
+  reasoning: string;
+  completedThought: string;
+  confidence: number;
+  detectedLanguage?: 'en-GH' | 'ak-GH' | 'ga-GH' | 'ee-GH' | 'pcm-GH';
+  detectedLanguageName?: string;
+} | null {
   const text = transcript.trim();
   const lower = text.toLowerCase().replace(/[?!.,]+$/, '');
 
@@ -674,6 +712,8 @@ function answerSimpleOrBasicQuestion(
   ) {
     return {
       confidence: 0.99,
+      detectedLanguage: 'ak-GH',
+      detectedLanguageName: 'Twi (Akan)',
       reasoning: "User greeted 'Wo ho te sɛn' / 'Ɛte sɛn' (How are you?) in Akan/Twi.",
       completedThought: 'Warm conversational Akan/Twi greeting reply.',
       response: 'Me ho yɛ paa, medaase! Wo nso, wo ho te sɛn? Me bɔ mmɔden sɛ mɛboa wo wɔ GHarvest ha.',
@@ -689,6 +729,8 @@ function answerSimpleOrBasicQuestion(
   ) {
     return {
       confidence: 0.99,
+      detectedLanguage: 'ak-GH',
+      detectedLanguageName: 'Twi (Akan)',
       reasoning: "User asked for Kofi's name in Akan/Twi ('Wo din de sɛn').",
       completedThought: 'Introduce Kofi in natural fluent Twi.',
       response: 'Me din de Kofi! Mewɔ ha sɛ mɛboa wo ama woatumi atɔ na woatɔn nnuane, ahwehwɛ lori, na woahwɛ w\'order yiye.',
@@ -703,6 +745,8 @@ function answerSimpleOrBasicQuestion(
   ) {
     return {
       confidence: 0.99,
+      detectedLanguage: 'ak-GH',
+      detectedLanguageName: 'Twi (Akan)',
       reasoning: 'User offered traditional Akan time-of-day greeting.',
       completedThought: 'Traditional Akan time-of-day response.',
       response: 'Yaa agya / Yaa ɛna! Akwaaba pa ara. Wo ho te sɛn? Ɛdeɛn na me nyɛ mma wo nnɛ wɔ GHarvest ha?',
@@ -718,6 +762,8 @@ function answerSimpleOrBasicQuestion(
   ) {
     return {
       confidence: 0.99,
+      detectedLanguage: 'ak-GH',
+      detectedLanguageName: 'Twi (Akan)',
       reasoning: 'User inquired about produce price in Akan/Twi.',
       completedThought: 'Produce pricing check in Twi.',
       response: 'Wopɛ sɛ wohwɛ aburoo, ntoosi, anaa bayere boɔ? Kyerɛ me adeɛ a wopɛ na mɛka n\'akontabuo ne ne boɔ a ɛda gua no so akyerɛ wo seesei ara.',
@@ -728,6 +774,8 @@ function answerSimpleOrBasicQuestion(
   if (lower.includes('ɛyɛ den dodo') || lower.includes('eye den dodo')) {
     return {
       confidence: 0.99,
+      detectedLanguage: 'ak-GH',
+      detectedLanguageName: 'Twi (Akan)',
       reasoning: 'User remarked that the price is too high in Akan/Twi.',
       completedThought: 'Respond to price concern in Akan/Twi.',
       response: 'Mete wo ase! Nnuane no boɔ yɛ den dodo a, yɛbɛtumi ahwehwɛ obi a ɔtɔn ne dea fam kakra ama wo wɔ gua no so.',
@@ -735,16 +783,23 @@ function answerSimpleOrBasicQuestion(
   }
 
   if (lower.includes('thank you') || lower.includes('medaase') || lower.includes('thanks')) {
+    const isTwiThanks = lower.includes('medaase');
     return {
       confidence: 0.99,
+      detectedLanguage: isTwiThanks ? 'ak-GH' : 'en-GH',
+      detectedLanguageName: isTwiThanks ? 'Twi (Akan)' : 'English (GH)',
       reasoning: 'User expressed gratitude.',
       completedThought: 'Acknowledge thanks graciously.',
-      response: "You are very welcome! Medaase pa ara. I'm always right here whenever you need anything.",
+      response: isTwiThanks
+        ? 'Ɛnyɛ hwee koraa, medaase pa ara! Mewɔ ha berɛ biara sɛ mɛboa wo.'
+        : "You are very welcome! Medaase pa ara. I'm always right here whenever you need anything.",
     };
   }
   if (lower.includes('speak twi') || lower.includes('say twi') || lower.includes('do you know twi')) {
     return {
       confidence: 0.99,
+      detectedLanguage: 'ak-GH',
+      detectedLanguageName: 'Twi (Akan)',
       reasoning: 'User asked about Twi language capability.',
       completedThought: 'Demonstrate Twi greeting.',
       response: 'Aane, meka Twi paa! Akwaaba, me din de Kofi. Ɛdeɛn na me nyɛ mma wo nnɛ?',
@@ -769,7 +824,7 @@ function answerSimpleOrBasicQuestion(
  * Intelligent deterministic local intent fallback
  * Guarantees zero failures and deep reasoning even if Gemini API is rate-limited or offline
  */
-function classifyLocalIntent(
+function classifyLocalIntentCore(
   transcript: string,
   currentPage?: string,
   taskContext?: any,
@@ -1363,6 +1418,103 @@ function classifyLocalIntent(
 }
 
 /**
+ * Multilingual & Intent Reasoning Engine for Kofi
+ * Detects Ghanaian English, Twi (Akan), Ghanaian Pidgin, Ga, and Ewe,
+ * ensuring Kofi seamlessly and naturally flows into the detected language.
+ */
+function classifyLocalIntent(
+  transcript: string,
+  currentPage?: string,
+  taskContext?: any,
+  acousticFeatures?: { rmsVariance?: number; cadence?: number; pauseCount?: number; estimatedTone?: string },
+  permanentMemories: string[] = [],
+  conversationHistory: any[] = []
+): KofiIntentResult {
+  const result = classifyLocalIntentCore(
+    transcript,
+    currentPage,
+    taskContext,
+    acousticFeatures,
+    permanentMemories,
+    conversationHistory
+  );
+
+  const text = transcript.trim();
+  const lower = text.toLowerCase();
+
+  // Robust Ghanaian Multilingual Dialect Detection
+  const isTwi =
+    /wo\s*ho\s*te|[eɛ]te\s*s[eɛ]n|mema\s*wo|wo\s*din\s*de|hwan\s*ne|hwan\s*koraa|me\s*p[eɛ]\s*s[eɛ]|me\s*p[eɛ]\b|s[eɛ]n\s*na|[eɛ]y[eɛ]\s*den|aburo|ntoosi|bayere|bayer[eɛ]|bankye|bor[oɔ]de[eɛ]|kookoo|gyene|gyeene|mako|shito|[eɛ]mo|mankani|medaase|akwaaba|lori|t[oɔ]n|t[oɔ]\b|nnuane|nhyehye[eɛ]|aduanan|aduasa|adaduonum/i.test(
+      lower
+    );
+
+  const isPidgin =
+    /\b(i dey|make i|how much be|wetin|dey need|abi|commot|sharp sharp|no wahala|oya|abeg|dey chop|dey go|wetin dey)\b/i.test(
+      lower
+    );
+
+  const isGa =
+    /\b(ojekoo|te oyoo|mi tao|mi ng[eɛ]|am[eɛ̃]|abl[eɛ̃]|yele|duade|amadaa|kpakpo)\b/i.test(lower);
+
+  const isEwe =
+    /\b(ndi na mi|fo[eɛ] nyuie|me di be|teli|bli|agbleli|agba[dɖ]u|atadi)\b/i.test(lower);
+
+  const detectedLanguage: 'en-GH' | 'ak-GH' | 'ga-GH' | 'ee-GH' | 'pcm-GH' =
+    result.detectedLanguage || (isTwi ? 'ak-GH' : isPidgin ? 'pcm-GH' : isGa ? 'ga-GH' : isEwe ? 'ee-GH' : 'en-GH');
+
+  const detectedLanguageName =
+    result.detectedLanguageName ||
+    (isTwi
+      ? 'Twi (Akan)'
+      : isPidgin
+      ? 'Ghanaian Pidgin'
+      : isGa
+      ? 'Ga (Accra)'
+      : isEwe
+      ? 'Ewe (Volta)'
+      : 'English (GH)');
+
+  let response = result.response;
+
+  // Language Flow: If user spoke Twi, guarantee that the response flows into natural, authentic Twi
+  if (isTwi) {
+    const isAlreadyTwi = /me ho yɛ|akwaaba|merubue|wopɛ|medaase|m'order|sɛn/i.test(response);
+    if (!isAlreadyTwi) {
+      if (result.type === 'compound_task' || result.route === 'marketplace') {
+        response = `Merubue gua no so ama wo ahwɛ nnuane a ɛwɔ hɔ seesei ara. Wo sika nyinaa bɛbɔ ho ban wɔ MTN MoMo escrow mu.`;
+      } else if (result.type === 'navigation' && result.route === 'orders') {
+        response = `Merubue w'order ne wo sika a ɛhyɛ escrow mu no nyinaa seesei ara.`;
+      } else if (result.type === 'navigation' && result.route === 'logistics') {
+        response = `Merubue lori ne akwantuo nhyehyeɛ no ama wo seesei ara ama woatumi afa nnuane akɔ.`;
+      } else if (result.type === 'clarification') {
+        response = `Gyae dadwene, mete wo ase! Wopɛ sɛ wohwɛ nnuane boɔ wɔ gua so, wo checki order, anaa wohwehwɛ lori akwantuo?`;
+      } else if (result.type === 'question') {
+        response = `Mɛpɛ sɛ meboa wo paa! Wobɛtumi abisa me nnuane boɔ, lori akwantuo, MTN MoMo escrow bammbɔ, anaa nkontabuo biara wɔ GHarvest so.`;
+      }
+    }
+  } else if (isPidgin) {
+    const isAlreadyPidgin = /dey|sharp sharp|make i/i.test(response);
+    if (!isAlreadyPidgin) {
+      if (result.type === 'compound_task' || result.route === 'marketplace') {
+        response = `I dey hear you sharp sharp! I dey open the marketplace make you inspect fresh food now now.`;
+      } else if (result.route === 'orders') {
+        response = `No wahala! I dey open your active escrow orders make you check everything.`;
+      } else if (result.route === 'logistics') {
+        response = `I dey arrange the haulage truck route give you sharp sharp.`;
+      }
+    }
+  }
+
+  return {
+    ...result,
+    transcript: text,
+    detectedLanguage,
+    detectedLanguageName,
+    response,
+  };
+}
+
+/**
  * Robust JSON extraction helper
  */
 function extractJson(text: string): string {
@@ -1455,12 +1607,15 @@ async function generateGeminiSpeech(text: string, style: string, voiceName = 'Pu
 }
 
 /**
- * POST /api/voice/intent
- * Deep Reasoning, Incomplete Sentence Inference, Tone Sensing, and Emotional Response Endpoint
+ * POST /api/voice/intent and POST /api/voice/process-audio
+ * Multimodal Audio Perception, Verbatim Twi/Akan Transcription,
+ * Multilingual Flow, Tone Sensing, and Emotional Response Endpoint
  */
-voiceRouter.post(['/voice/intent', '/intent'], async (req: Request, res: Response) => {
+voiceRouter.post(['/voice/intent', '/intent', '/voice/process-audio', '/process-audio'], async (req: Request, res: Response) => {
   const {
     transcript,
+    audioBase64,
+    mimeType = 'audio/webm',
     currentPage = '/',
     taskContext,
     acousticFeatures,
@@ -1469,12 +1624,15 @@ voiceRouter.post(['/voice/intent', '/intent'], async (req: Request, res: Respons
     voiceConfig,
   } = req.body;
 
-  if (typeof transcript !== 'string' || !transcript.trim()) {
-    res.status(400).json({ error: 'Valid transcript string is required' });
+  const hasAudio = typeof audioBase64 === 'string' && audioBase64.trim().length > 50;
+  const hasTranscript = typeof transcript === 'string' && transcript.trim().length > 0;
+
+  if (!hasAudio && !hasTranscript) {
+    res.status(400).json({ error: 'Valid transcript or audioBase64 string is required' });
     return;
   }
 
-  const cleanTranscript = transcript.trim();
+  const cleanTranscript = (transcript || '').trim();
   if (cleanTranscript.length > 800) {
     res.status(400).json({ error: 'Transcript exceeds maximum length' });
     return;
@@ -1482,7 +1640,7 @@ voiceRouter.post(['/voice/intent', '/intent'], async (req: Request, res: Respons
 
   // Deterministic local analysis as baseline and fallback
   const localResult = classifyLocalIntent(
-    cleanTranscript,
+    cleanTranscript || 'Audio voice input',
     currentPage,
     taskContext,
     acousticFeatures,
@@ -1490,16 +1648,16 @@ voiceRouter.post(['/voice/intent', '/intent'], async (req: Request, res: Respons
     conversationHistory
   );
 
-  // Check if query is a simple greeting or simple interruption without emotion
+  // Check if query is a simple greeting or simple interruption without emotion (only if text was provided)
   const isSimpleInterruption =
-    localResult.type === 'interruption' && cleanTranscript.split(' ').length <= 2;
+    !hasAudio && localResult.type === 'interruption' && cleanTranscript.split(' ').length <= 2;
 
   if (isSimpleInterruption) {
     res.json(localResult);
     return;
   }
 
-  // Attempt Deep Reasoning with Gemini 3.8 Flash
+  // Attempt Deep Multimodal Reasoning with Gemini 3.8 Flash
   if (ai) {
     try {
       const formattedMemories =
@@ -1515,7 +1673,58 @@ voiceRouter.post(['/voice/intent', '/intent'], async (req: Request, res: Respons
               .join('\n')
           : 'First conversational exchange.';
 
-      const userPrompt = `Current App Screen: ${currentPage}
+      let userContents: any[];
+
+      if (hasAudio) {
+        const rawAudioClean = audioBase64.replace(/^data:audio\/\w+;base64,/, '').trim();
+        const promptText = `Current App Screen: ${currentPage}
+Task Context: ${taskContext ? JSON.stringify(taskContext) : 'None'}
+Transcript Hint (if available from speech recognizer): "${cleanTranscript}"
+Permanent User Memory Bank (High-Retention Facts & Preferences):
+${formattedMemories}
+
+Recent Multi-Turn Conversation History:
+${formattedHistory}
+
+MANDATORY INSTRUCTIONS FOR MULTIMODAL AUDIO PERCEPTION:
+1. AUDIO TRANSCRIPTION: Listen carefully to the user's spoken Ghanaian audio.
+   - Transcribe the user's speech VERBATIM into 'transcript'.
+   - If the user speaks in Twi / Akan (e.g. 'Wo ho te sɛn', 'Ɛte sɛn', 'Me pɛ sɛ me tɔ aburoo wɔ Ejura', 'Ntoosi boɔ yɛ sɛn wɔ Techiman', 'Mema wo akye', 'Medaase'), transcribe it in authentic Akan/Twi with accurate orthography (using characters like 'ɛ' and 'ɔ').
+   - If the user speaks in Ghanaian English, Pidgin, Ga, or Ewe, transcribe verbatim in that language.
+2. DETECT LANGUAGE:
+   - 'ak-GH' & 'Twi (Akan)' for Twi / Akan
+   - 'en-GH' & 'English (GH)' for Ghanaian English
+   - 'pcm-GH' & 'Ghanaian Pidgin' for Pidgin
+   - 'ga-GH' & 'Ga (Accra)' for Ga
+   - 'ee-GH' & 'Ewe (Volta)' for Ewe
+3. CRITICAL CONVERSATIONAL LANGUAGE FLOW:
+   - YOUR 'response' MUST IMMEDIATELY FLOW INTO THE EXACT SAME LANGUAGE THAT THE USER SPOKE!
+   - IF THE USER SPOKE IN TWI (Akan): Your 'response' MUST BE DELIVERED IN NATURAL, FLUENT TWI! Never respond in English to Twi audio!
+   - IF THE USER SPOKE IN GHANAIAN PIDGIN: Your 'response' MUST BE IN FLUENT PIDGIN!
+   - IF THE USER SPOKE IN GHANAIAN ENGLISH: Your 'response' MUST BE IN GHANAIAN ENGLISH!
+4. AGRICULTURAL REASONING & APP ACTION:
+   - Search fresh produce (tomatoes, maize, yam, cassava, plantain), check commodity prices, estimate haulage freight, or track escrow orders.
+5. SENSE EMOTIONAL TONE:
+   - Detect human emotional tone (nervous, anxious, overwhelmed, sad, happy, urgent, calm).
+   - If anxious, take a deep breath ('shouldTakeDeepBreath: true') and speak with comforting reassurance.
+6. Return strictly valid JSON matching the schema.`;
+
+        userContents = [
+          {
+            role: 'user',
+            parts: [
+              {
+                inlineData: {
+                  mimeType: mimeType || 'audio/webm',
+                  data: rawAudioClean,
+                },
+              },
+              { text: promptText },
+            ],
+          },
+        ];
+      } else {
+        const promptText = `Current App Screen: ${currentPage}
 Task Context: ${taskContext ? JSON.stringify(taskContext) : 'None'}
 User Spoken Voice Input: "${cleanTranscript}"
 Permanent User Memory Bank (High-Retention Facts & Preferences):
@@ -1525,118 +1734,133 @@ Recent Multi-Turn Conversation History:
 ${formattedHistory}
 
 Acoustic Cues: ${
-        acousticFeatures
-          ? `RMS Energy Variance: ${acousticFeatures.rmsVariance?.toFixed(3) || 'normal'}, Cadence: ${
-              acousticFeatures.cadence || 'normal'
-            }`
-          : 'Microphone stream'
+          acousticFeatures
+            ? `RMS Energy Variance: ${acousticFeatures.rmsVariance?.toFixed(3) || 'normal'}, Cadence: ${
+                acousticFeatures.cadence || 'normal'
+              }`
+            : 'Microphone stream'
+        }
+
+DEEP REASONING & MULTILINGUAL FLOW INSTRUCTIONS:
+1. DETECT LANGUAGE & FLOW INTO IT:
+   - Detect the user's spoken language: 'ak-GH' for Twi, 'pcm-GH' for Pidgin, 'ga-GH' for Ga, 'ee-GH' for Ewe, 'en-GH' for English.
+   - Set 'detectedLanguage' and 'detectedLanguageName'.
+   - CRITICAL: FLOW IMMEDIATELY INTO THAT SAME LANGUAGE in your 'response'!
+   - If user input is in Twi (e.g. 'Wo ho te sɛn', 'Ɛte sɛn', 'Me pɛ sɛ me tɔ...', 'Ntoosi boɔ yɛ sɛn'), your 'response' MUST be in natural, fluent Twi!
+2. Direct smart answers: If user asks a simple, basic, or general question, answer it DIRECTLY, WARMLY, and CONCISELY.
+3. Permanent memory recall: Recall stored user facts accurately when asked.
+4. Support incomplete thoughts: deduce what the user was starting to say.
+5. Sense human emotional tone and comfort the user.
+6. Return strictly valid JSON matching the schema.`;
+
+        userContents = [
+          {
+            role: 'user',
+            parts: [{ text: promptText }],
+          },
+        ];
       }
 
-DEEP REASONING INSTRUCTIONS:
-1. If the user asks a simple, basic, or general question (e.g. arithmetic math, factual query, science, everyday knowledge, agriculture tips, or conversational question), answer it DIRECTLY, ACCURATELY, WARMLY and CONCISELY with type="question". Do NOT deflect!
-2. EXPANSIVE PERMANENT MEMORY RECALL: You possess an expansive, sharp memory of this user. If they ask about their identity, preferences, crops, previous statements, or earlier conversation turns (e.g. 'What is my name?', 'What did I say earlier?', 'What do you remember about me?'), respond with razor-sharp accuracy, citing their stored details.
-3. SOUND SHARP, WITTY & HUMAN: Call the user by name if known (e.g. 'Kwame'). Reference past choices and follow up interactively without robotic repetition.
-4. EXTRACT NEW MEMORIES: In 'newMemoriesExtracted', return an array of strings for any newly disclosed user facts, names, locations, contact info, or trade preferences from this turn to commit into permanent memory.
-5. Check if the user's sentence is incomplete or if they trailed off. Strongly deduce what they wanted to accomplish.
-6. Sense the user's human emotional tone (nervous, anxious, overwhelmed, sad, happy, urgent, calm).
-7. If they are nervous, anxious, or overwhelmed, take a deep breath ('shouldTakeDeepBreath: true') and speak with grounding comfort and deliberate pauses '...'.
-8. If they are sad, show deep compassion and warmth with a gentle sigh '<sigh>'.
-9. If they are happy, respond with bright energy and celebrate with them.
-10. Know when to pause ('purse') using '...' before key reassurance.
-11. Return strictly valid JSON matching the schema.`;
-
       let response: any = null;
-      for (const model of ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash']) {
+      for (const model of ['gemini-3.8-flash', 'gemini-2.5-flash']) {
         try {
           response = (await Promise.race([
             ai.models.generateContent({
               model,
-              contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+              contents: userContents,
               config: {
                 systemInstruction: KOFI_SYSTEM_PROMPT,
                 responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                type: {
-                  type: Type.STRING,
-                  enum: [
-                    'conversation',
-                    'question',
-                    'navigation',
-                    'application_action',
-                    'compound_task',
-                    'clarification',
-                    'interruption',
-                    'unknown',
-                  ],
-                },
-                confidence: { type: Type.NUMBER },
-                route: {
-                  type: Type.STRING,
-                  enum: ['home', 'marketplace', 'orders', 'logistics', 'null'],
-                },
-                action: { type: Type.STRING },
-                entities: {
+                responseSchema: {
                   type: Type.OBJECT,
                   properties: {
-                    product: { type: Type.STRING },
-                    crop: { type: Type.STRING },
-                    location: { type: Type.STRING },
-                    town: { type: Type.STRING },
-                    quantity: { type: Type.NUMBER },
-                    unit: { type: Type.STRING },
-                    orderId: { type: Type.STRING },
+                    type: {
+                      type: Type.STRING,
+                      enum: [
+                        'conversation',
+                        'question',
+                        'navigation',
+                        'application_action',
+                        'compound_task',
+                        'clarification',
+                        'interruption',
+                        'unknown',
+                      ],
+                    },
+                    confidence: { type: Type.NUMBER },
+                    route: {
+                      type: Type.STRING,
+                      enum: ['home', 'marketplace', 'orders', 'logistics', 'null'],
+                    },
+                    action: { type: Type.STRING },
+                    entities: {
+                      type: Type.OBJECT,
+                      properties: {
+                        product: { type: Type.STRING },
+                        crop: { type: Type.STRING },
+                        location: { type: Type.STRING },
+                        town: { type: Type.STRING },
+                        quantity: { type: Type.NUMBER },
+                        unit: { type: Type.STRING },
+                        orderId: { type: Type.STRING },
+                      },
+                    },
+                    missingInformation: {
+                      type: Type.ARRAY,
+                      items: { type: Type.STRING },
+                    },
+                    requiresConfirmation: { type: Type.BOOLEAN },
+                    reasoning: { type: Type.STRING },
+                    isIncompleteSentence: { type: Type.BOOLEAN },
+                    completedThought: { type: Type.STRING },
+                    detectedTone: {
+                      type: Type.STRING,
+                      enum: ['nervous', 'anxious', 'overwhelmed', 'sad', 'happy', 'urgent', 'calm'],
+                    },
+                    toneConfidence: { type: Type.NUMBER },
+                    emotionalContext: { type: Type.STRING },
+                    shouldTakeDeepBreath: { type: Type.BOOLEAN },
+                    vocalStyle: { type: Type.STRING },
+                    response: { type: Type.STRING },
+                    detectedLanguage: {
+                      type: Type.STRING,
+                      enum: ['ak-GH', 'en-GH', 'pcm-GH', 'ga-GH', 'ee-GH'],
+                    },
+                    detectedLanguageName: { type: Type.STRING },
+                    transcript: { type: Type.STRING },
+                    newMemoriesExtracted: {
+                      type: Type.ARRAY,
+                      items: { type: Type.STRING },
+                    },
+                    recalledMemory: { type: Type.STRING },
                   },
+                  required: [
+                    'type',
+                    'confidence',
+                    'response',
+                    'reasoning',
+                    'isIncompleteSentence',
+                    'completedThought',
+                    'detectedTone',
+                    'shouldTakeDeepBreath',
+                    'vocalStyle',
+                    'detectedLanguage',
+                    'detectedLanguageName',
+                  ],
                 },
-                missingInformation: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING },
-                },
-                requiresConfirmation: { type: Type.BOOLEAN },
-                reasoning: { type: Type.STRING },
-                isIncompleteSentence: { type: Type.BOOLEAN },
-                completedThought: { type: Type.STRING },
-                detectedTone: {
-                  type: Type.STRING,
-                  enum: ['nervous', 'anxious', 'overwhelmed', 'sad', 'happy', 'urgent', 'calm'],
-                },
-                toneConfidence: { type: Type.NUMBER },
-                emotionalContext: { type: Type.STRING },
-                shouldTakeDeepBreath: { type: Type.BOOLEAN },
-                vocalStyle: { type: Type.STRING },
-                response: { type: Type.STRING },
-                newMemoriesExtracted: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING },
-                },
-                recalledMemory: { type: Type.STRING },
+                temperature: 0.2,
+                maxOutputTokens: 700,
               },
-              required: [
-                'type',
-                'confidence',
-                'response',
-                'reasoning',
-                'isIncompleteSentence',
-                'completedThought',
-                'detectedTone',
-                'shouldTakeDeepBreath',
-                'vocalStyle',
-              ],
-            },
-            temperature: 0.2,
-            maxOutputTokens: 600,
-          },
-        }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Gemini reasoning timeout')), 2800)
-        ),
-      ])) as any;
-      if (response?.text) break;
-    } catch {
-      continue;
-    }
-  }
+            }),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Gemini reasoning timeout')), 4200)
+            ),
+          ])) as any;
+          if (response?.text) break;
+        } catch {
+          continue;
+        }
+      }
 
       const rawText = response?.text ? response.text.trim() : '';
       if (rawText) {
@@ -1716,15 +1940,30 @@ DEEP REASONING INSTRUCTIONS:
               ? parsed.response.trim()
               : localResult.response;
 
+          const detectedLanguage: 'en-GH' | 'ak-GH' | 'ga-GH' | 'ee-GH' | 'pcm-GH' =
+            parsed.detectedLanguage && ['ak-GH', 'en-GH', 'pcm-GH', 'ga-GH', 'ee-GH'].includes(parsed.detectedLanguage)
+              ? parsed.detectedLanguage
+              : localResult.detectedLanguage || 'en-GH';
+
+          const detectedLanguageName =
+            typeof parsed.detectedLanguageName === 'string' && parsed.detectedLanguageName.trim()
+              ? parsed.detectedLanguageName.trim()
+              : localResult.detectedLanguageName || 'English (GH)';
+
+          const effectiveTranscript =
+            typeof parsed.transcript === 'string' && parsed.transcript.trim()
+              ? parsed.transcript.trim()
+              : cleanTranscript || localResult.transcript || 'Spoken input';
+
           // Permanent voice persona name
           const voiceName = voiceConfig?.geminiVoiceName || voiceConfig?.voiceName || 'Puck';
 
           // Attempt fast speech audio generation asynchronously (max 1800ms)
-          let audioBase64: string | undefined;
+          let audioBase64Result: string | undefined;
           try {
             const ttsAudio = await generateGeminiSpeech(speechResponse, vocalStyle, voiceName);
             if (ttsAudio) {
-              audioBase64 = ttsAudio;
+              audioBase64Result = ttsAudio;
             }
           } catch {}
 
@@ -1737,6 +1976,9 @@ DEEP REASONING INSTRUCTIONS:
             missingInformation,
             requiresConfirmation: Boolean(parsed.requiresConfirmation),
             response: speechResponse,
+            detectedLanguage,
+            detectedLanguageName,
+            transcript: effectiveTranscript,
             reasoning,
             isIncompleteSentence,
             completedThought,
@@ -1745,7 +1987,7 @@ DEEP REASONING INSTRUCTIONS:
             emotionalContext,
             shouldTakeDeepBreath,
             vocalStyle,
-            audioBase64,
+            audioBase64: audioBase64Result,
             newMemoriesExtracted: Array.isArray(parsed.newMemoriesExtracted)
               ? parsed.newMemoriesExtracted.filter((m: unknown) => typeof m === 'string')
               : undefined,

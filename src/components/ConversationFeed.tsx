@@ -51,8 +51,14 @@ export const ConversationFeed: React.FC<ConversationFeedProps> = ({
           }`}>
             {/* Header info */}
             <div className="flex items-center justify-between text-[11px] text-gray-400 mb-1.5 gap-2">
-              <span className="font-semibold text-emerald-400 flex items-center gap-1">
+              <span className="font-semibold text-emerald-400 flex items-center gap-1.5 flex-wrap">
                 {msg.sender === 'user' ? 'You' : 'Kofi'}
+                {msg.detectedLanguageName && (
+                  <span className="text-[10px] bg-emerald-950/90 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-700/50 flex items-center gap-1 font-medium">
+                    <span>🇬🇭</span>
+                    <span>{msg.detectedLanguageName}</span>
+                  </span>
+                )}
                 {msg.toolsUsed && msg.toolsUsed.length > 0 && (
                   <span className="text-[10px] bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-800/50">
                     tools: {msg.toolsUsed.join(', ')}

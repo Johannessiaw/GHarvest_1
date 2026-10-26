@@ -61,6 +61,9 @@ export interface KofiIntent {
   vocalStyle?: string;
   speechMarkup?: string;
   audioBase64?: string;
+  // Multilingual Detection and Flow Fields
+  detectedLanguage?: 'en-GH' | 'ak-GH' | 'ga-GH' | 'ee-GH' | 'pcm-GH';
+  detectedLanguageName?: string;
   // Expansive Memory & Permanent Voice Fields
   newMemoriesExtracted?: string[];
   recalledMemory?: string;
@@ -132,8 +135,12 @@ export interface VoiceEngineOptions {
   handsFree?: boolean;
   classifyIntent: (
     transcript: string,
-    signal: AbortSignal,
-    acousticFeatures?: { rmsVariance?: number; cadence?: number; pauseCount?: number; estimatedTone?: string }
+    signal?: AbortSignal,
+    acousticFeatures?: { rmsVariance?: number; cadence?: number; pauseCount?: number; estimatedTone?: string },
+    conversationHistory?: Array<{ role: string; text: string }>,
+    customMemories?: string[],
+    audioBase64?: string,
+    mimeType?: string
   ) => Promise<KofiIntent>;
 }
 
@@ -1288,20 +1295,26 @@ function classifyLocalIntentClient(
 
 export async function classifyKofiIntent(
   transcript: string,
-  signal: AbortSignal,
+  signal?: AbortSignal,
   acousticFeatures?: { rmsVariance?: number; cadence?: number; pauseCount?: number; estimatedTone?: string },
   conversationHistory?: Array<{ role: string; text: string }>,
-  customMemories?: string[]
+  customMemories?: string[],
+  audioBase64?: string,
+  mimeType?: string
 ): Promise<KofiIntent> {
   const currentPage = typeof window !== 'undefined' ? window.location.pathname : '/';
 
   // Extract from user speech into memory immediately
   try {
-    KofiMemoryStore.extractFromSpeech(transcript);
+    if (transcript && transcript.trim()) {
+      KofiMemoryStore.extractFromSpeech(transcript);
+    }
   } catch {}
 
+  const hasAudio = typeof audioBase64 === 'string' && audioBase64.trim().length > 50;
+
   // 1. Instant local analysis (includes deep reasoning, tone sensing, incomplete thought reconstruction)
-  const instantMatch = classifyLocalIntentClient(transcript, currentPage, acousticFeatures);
+  const instantMatch = classifyLocalIntentClient(transcript || '', currentPage, acousticFeatures);
 
   const isIncomplete =
     instantMatch.isIncompleteSentence ||
@@ -1314,12 +1327,12 @@ export async function classifyKofiIntent(
       transcript
     );
 
-  // If not incomplete and no overt emotional markers and high confidence instant match, return immediately (<5ms)
-  if (!isIncomplete && !hasEmotionalTone && instantMatch.confidence >= 0.97) {
+  // If not incomplete, no overt emotional markers, no raw audio needing ASR, and high confidence match, return immediately (<5ms)
+  if (!hasAudio && !isIncomplete && !hasEmotionalTone && instantMatch.confidence >= 0.97) {
     return instantMatch;
   }
 
-  // 2. Network Classification with Gemini for complex reasoning and human tone synthesis
+  // 2. Network Classification with Gemini for complex reasoning, verbatim audio transcription, and human tone synthesis
   try {
     const fetchPromise = fetch('/api/voice/intent', {
       method: 'POST',
@@ -1329,6 +1342,8 @@ export async function classifyKofiIntent(
       signal,
       body: JSON.stringify({
         transcript,
+        audioBase64,
+        mimeType,
         currentPage,
         acousticFeatures,
         conversationHistory: conversationHistory || [],
@@ -1338,8 +1353,8 @@ export async function classifyKofiIntent(
     });
 
     const timeoutPromise = new Promise<Response>((_, reject) => {
-      const t = setTimeout(() => reject(new Error('Network intent timeout')), 2800);
-      signal.addEventListener('abort', () => clearTimeout(t));
+      const t = setTimeout(() => reject(new Error('Network intent timeout')), 4500);
+      signal?.addEventListener('abort', () => clearTimeout(t));
     });
 
     const response = await Promise.race([fetchPromise, timeoutPromise]);
@@ -1386,9 +1401,24 @@ export async function classifyKofiIntent(
             });
           }
 
+          const effectiveTranscript =
+            typeof result.transcript === 'string' && result.transcript.trim()
+              ? result.transcript.trim()
+              : transcript;
+
+          const detectedLanguage =
+            typeof result.detectedLanguage === 'string' && ['ak-GH', 'en-GH', 'pcm-GH', 'ga-GH', 'ee-GH'].includes(result.detectedLanguage)
+              ? (result.detectedLanguage as 'ak-GH' | 'en-GH' | 'pcm-GH' | 'ga-GH' | 'ee-GH')
+              : instantMatch.detectedLanguage;
+
+          const detectedLanguageName =
+            typeof result.detectedLanguageName === 'string' && result.detectedLanguageName.trim()
+              ? result.detectedLanguageName.trim()
+              : instantMatch.detectedLanguageName;
+
           return {
             type: result.type as KofiIntent['type'],
-            transcript,
+            transcript: effectiveTranscript,
             confidence,
             route,
             action,
@@ -1396,6 +1426,8 @@ export async function classifyKofiIntent(
             missingInformation,
             requiresConfirmation: Boolean(result.requiresConfirmation),
             response: result.response,
+            detectedLanguage,
+            detectedLanguageName,
             reasoning: typeof result.reasoning === 'string' ? result.reasoning : instantMatch.reasoning,
             isIncompleteSentence:
               typeof result.isIncompleteSentence === 'boolean'
@@ -1527,6 +1559,8 @@ export class KofiVoiceEngine {
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private mediaStream: MediaStream | null = null;
+  private mediaRecorder: MediaRecorder | null = null;
+  private audioChunks: Blob[] = [];
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private highpassFilter: BiquadFilterNode | null = null;
   private lowpassFilter: BiquadFilterNode | null = null;
@@ -2236,6 +2270,77 @@ export class KofiVoiceEngine {
     }
   }
 
+  private startMediaRecording(): void {
+    if (typeof window === 'undefined' || !this.mediaStream || typeof MediaRecorder === 'undefined') return;
+    try {
+      if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+        try {
+          this.mediaRecorder.stop();
+        } catch {}
+      }
+      this.audioChunks = [];
+      let mimeType = '';
+      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        mimeType = 'audio/webm;codecs=opus';
+      } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+        mimeType = 'audio/webm';
+      } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+        mimeType = 'audio/ogg;codecs=opus';
+      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        mimeType = 'audio/mp4';
+      }
+
+      this.mediaRecorder = mimeType
+        ? new MediaRecorder(this.mediaStream, { mimeType })
+        : new MediaRecorder(this.mediaStream);
+
+      this.mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          this.audioChunks.push(e.data);
+          if (this.audioChunks.length > 70) {
+            this.audioChunks.splice(0, this.audioChunks.length - 70);
+          }
+        }
+      };
+      this.mediaRecorder.start(200);
+    } catch (e) {
+      console.warn('MediaRecorder start error:', e);
+    }
+  }
+
+  private stopMediaRecording(): void {
+    try {
+      if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+        this.mediaRecorder.stop();
+      }
+    } catch {}
+  }
+
+  private async getRecordedAudioBase64(): Promise<{ base64: string; mimeType: string } | null> {
+    if (this.audioChunks.length === 0) return null;
+    try {
+      const mimeType = this.mediaRecorder?.mimeType || 'audio/webm';
+      const audioBlob = new Blob(this.audioChunks, { type: mimeType });
+      if (audioBlob.size < 400) return null;
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const res = reader.result as string;
+          if (!res) {
+            resolve(null);
+            return;
+          }
+          const base64 = res.includes(',') ? res.split(',')[1] : res;
+          resolve({ base64, mimeType });
+        };
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(audioBlob);
+      });
+    } catch {
+      return null;
+    }
+  }
+
   public async finishTurn(explicitTranscript?: string): Promise<void> {
     this.clearSilenceTimer();
 
@@ -2248,10 +2353,34 @@ export class KofiVoiceEngine {
 
     let transcript = explicitTranscript || this.joinTranscript(this.currentFinal, this.currentPartial);
 
-    if (!transcript || transcript === this.lastSubmitted || this.isEchoOfSystemSpeech(transcript)) {
+    // Grab audio captured by MediaRecorder
+    let recordedAudio: { base64: string; mimeType: string } | null = null;
+    try {
+      recordedAudio = await this.getRecordedAudioBase64();
+    } catch {}
+
+    const hasAudioBytes = Boolean(recordedAudio && recordedAudio.base64 && recordedAudio.base64.length > 400);
+
+    if (!transcript && !hasAudioBytes) {
       this.currentPartial = '';
       this.currentFinal = '';
+      if (this.running && !this.speaking) {
+        this.startMediaRecording();
+      }
       return;
+    }
+
+    if (transcript && (transcript === this.lastSubmitted || this.isEchoOfSystemSpeech(transcript))) {
+      this.currentPartial = '';
+      this.currentFinal = '';
+      if (this.running && !this.speaking) {
+        this.startMediaRecording();
+      }
+      return;
+    }
+
+    if (!transcript && hasAudioBytes) {
+      transcript = 'Spoken voice input';
     }
 
     // Intensive formatting: capitalize first letter and ensure question mark for inquiries
@@ -2285,7 +2414,21 @@ export class KofiVoiceEngine {
     this.playImmediateThinkingAcknowledgment(transcript);
 
     try {
-      const intent = await this.classifyIntent(transcript, this.requestController.signal, acousticFeatures);
+      const intent = await this.classifyIntent(
+        transcript,
+        this.requestController.signal,
+        acousticFeatures,
+        undefined,
+        undefined,
+        recordedAudio?.base64,
+        recordedAudio?.mimeType
+      );
+
+      // Reset chunks for next conversational turn
+      this.audioChunks = [];
+      if (this.running && !this.speaking) {
+        this.startMediaRecording();
+      }
 
       if (this.destroyed || turnId !== this.generation || this.requestController.signal.aborted) {
         return;
@@ -2293,7 +2436,7 @@ export class KofiVoiceEngine {
 
       this.callbacks.onIntent({
         ...intent,
-        transcript,
+        transcript: intent.transcript || transcript,
       });
 
       // Crucial: Only return to listening/standby if speak() was NOT called and system is not speaking
@@ -2336,6 +2479,17 @@ export class KofiVoiceEngine {
     const lower = transcript.toLowerCase();
     const isInstantMath = /\b\d+\s*(\+|\-|plus|minus|times|\*|\/|divided by)\s*\d+\b/i.test(lower);
     if (isInstantMath && lower.length < 25) {
+      return;
+    }
+
+    const isTwi =
+      this.language === 'ak-GH' ||
+      /wo\s*ho\s*te|[eɛ]te\s*s[eɛ]n|mema\s*wo|wo\s*din\s*de|me\s*p[eɛ]|s[eɛ]n\s*na|aburo|ntoosi|bayere|bayer[eɛ]|bankye|bor[oɔ]de[eɛ]|medaase|akwaaba|lori/i.test(
+        lower
+      );
+
+    // If user spoke Twi or app is set to Twi, the instant double earcon chime gives instant acoustic feedback without English words interrupting
+    if (isTwi) {
       return;
     }
 
@@ -2415,6 +2569,7 @@ export class KofiVoiceEngine {
     if (value) {
       this.clearSilenceTimer();
       this.clearRestartTimer();
+      this.stopMediaRecording();
 
       try {
         this.recognition?.abort();
@@ -2449,6 +2604,7 @@ export class KofiVoiceEngine {
         this.currentFinal = '';
         this.startRecognitionInstance();
         this.startAudioVisualizer();
+        this.startMediaRecording();
       } else {
         this.setState('standby');
       }
@@ -2742,6 +2898,7 @@ export class KofiVoiceEngine {
 
   destroy(): void {
     this.stop();
+    this.stopMediaRecording();
     this.destroyed = true;
     if (this.permanentWatchdogInterval) {
       clearInterval(this.permanentWatchdogInterval);
@@ -2788,6 +2945,7 @@ export class KofiVoiceEngine {
             sampleRate: 16000,
           },
         });
+        this.startMediaRecording();
       }
 
       if (this.mediaStream && !this.analyser) {

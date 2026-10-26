@@ -125,6 +125,9 @@ export interface VoiceMessage {
   shouldTakeDeepBreath?: boolean;
   vocalStyle?: string;
   audioBase64?: string;
+  // Multilingual & Dialect Flow Fields
+  detectedLanguage?: SupportedLanguage;
+  detectedLanguageName?: string;
   // Permanent Memory & High-Retention Fields
   recalledMemory?: string;
   newMemoriesExtracted?: string[];
