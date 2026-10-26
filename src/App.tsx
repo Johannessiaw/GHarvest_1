@@ -266,8 +266,8 @@ export default function App() {
       },
       {
         language: 'en-GH',
-        silenceTimeoutMs: 320,
-        minimumSpeechMs: 140,
+        silenceTimeoutMs: 750,
+        minimumSpeechMs: 150,
         handsFree: true,
         classifyIntent: classifyKofiIntent,
       }
@@ -440,13 +440,6 @@ export default function App() {
     setOrders(GHarvestDataManager.getOrders());
     setActiveOrderModal(null);
     setSelectedOrder(newOrder);
-
-    // Sync with backend API
-    fetch('/api/orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newOrder),
-    }).catch(() => {});
 
     const confirmationMsg: VoiceMessage = {
       id: `kofi-${Date.now()}`,

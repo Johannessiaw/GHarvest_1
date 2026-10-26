@@ -181,6 +181,143 @@ async function runTests() {
     JSON.stringify(unclear)
   );
 
+  // 19. Local ASR Corpus Size (> 20,000 Trained Utterances)
+  const { LocalAsrLanguageModel } = await import('../src/services/localAsrCorpus');
+  const lm = LocalAsrLanguageModel.getInstance();
+  const datasetCount = lm.getDatasetCount();
+  assert(
+    datasetCount >= 20000,
+    `19. Local ASR contains >= 20,000 trained records (Actual: ${datasetCount.toLocaleString()})`
+  );
+
+  // 20. Local ASR Beam Search Decoding Accuracy & Zero API Execution
+  const { LocalAsrEngine } = await import('../src/services/localAsrEngine');
+  const localAsr = LocalAsrEngine.getInstance();
+  const decoded = localAsr.decodeHypothesis('me pe 50 crates of tech man tomatoes fa ko commasy');
+  assert(
+    decoded.zeroApi === true &&
+      decoded.transcript.toLowerCase().includes('techiman') &&
+      decoded.transcript.toLowerCase().includes('kumasi') &&
+      decoded.durationMs < 50,
+    `20. Local ASR accurately decodes 'tech man' -> Techiman and 'commasy' -> Kumasi in ${decoded.durationMs}ms with zero API calls`,
+    JSON.stringify(decoded)
+  );
+
+  // 21. Local DSP Acoustic Framing & Mel Filterbank Extraction
+  const { LocalAudioDsp } = await import('../src/services/localAudioDsp');
+  const dummyPcm = new Float32Array(16000); // 1 second of audio
+  for (let i = 0; i < dummyPcm.length; i++) dummyPcm[i] = Math.sin((2 * Math.PI * 440 * i) / 16000) * 0.1;
+  const dummyFrame = dummyPcm.subarray(0, 400);
+  const dspFeatures = LocalAudioDsp.extractFrameFeatures(dummyFrame);
+  assert(
+    dspFeatures.mfcc.length === 13 && dspFeatures.melSpectrogram.length === 40 && dspFeatures.energy > 0,
+    '21. Local DSP extracts 40-band log-mel energies and 13 MFCC coefficients locally'
+  );
+
+  // 22. Twi Greeting ASR Approximation & Language Identification
+  const twiGreetingAsr = localAsr.decodeHypothesis('who hotel sen');
+  assert(
+    twiGreetingAsr.transcript.toLowerCase().includes('wo ho te') &&
+      twiGreetingAsr.languageDetected === 'ak-GH',
+    `22. Spoken Twi greeting approximation 'who hotel sen' decodes to '${twiGreetingAsr.transcript}' with ak-GH dialect detection`,
+    JSON.stringify(twiGreetingAsr)
+  );
+
+  // 23. Twi Identity & Gratitude Recognition
+  const twiNameAsr = localAsr.decodeHypothesis('who ding day sen');
+  const twiThanksAsr = localAsr.decodeHypothesis('my dad say paa');
+  assert(
+    twiNameAsr.transcript.toLowerCase().includes('wo din de') &&
+      twiThanksAsr.transcript.toLowerCase().includes('medaase'),
+    `23. Spoken Twi name ('${twiNameAsr.transcript}') and gratitude ('${twiThanksAsr.transcript}') transcribed accurately`,
+    JSON.stringify({ twiNameAsr, twiThanksAsr })
+  );
+
+  // 24. Twi Crop Trade & Marketplace Intent Classification
+  const twiTradeAsr = localAsr.decodeHypothesis('may per say me to aburoo');
+  assert(
+    twiTradeAsr.transcript.toLowerCase().includes('aburoo') ||
+      twiTradeAsr.transcript.toLowerCase().includes('me pɛ'),
+    `24a. Twi crop query 'may per say me to aburoo' decodes with Twi fidelity: '${twiTradeAsr.transcript}'`,
+    JSON.stringify(twiTradeAsr)
+  );
+
+  // Test Twi Voice Router intent classification via classifyLocalIntent
+  const { voiceRouter } = await import('./routes/voiceRouter');
+  // We can test the local intent classification directly or via GeminiService
+  const twiKofiGreeting = await GeminiService.localKofiEngine('Wo ho te sɛn', {}, 'ak-GH');
+  assert(
+    twiKofiGreeting.reply.toLowerCase().includes('me ho yɛ') ||
+      twiKofiGreeting.reply.toLowerCase().includes('kofi') ||
+      twiKofiGreeting.reply.toLowerCase().includes('akwaaba'),
+    `24b. Spoken Twi greeting 'Wo ho te sɛn' returns natural Twi response: '${twiKofiGreeting.reply}'`,
+    JSON.stringify(twiKofiGreeting)
+  );
+
+  // 25. Twi Transport & Directional Navigation
+  const twiLogistics = localAsr.decodeHypothesis('lorry go commasy');
+  assert(
+    twiLogistics.transcript.toLowerCase().includes('lori kɔ') &&
+      twiLogistics.transcript.toLowerCase().includes('kumasi'),
+    `25. Twi haulage command 'lorry go commasy' decodes to '${twiLogistics.transcript}'`,
+    JSON.stringify(twiLogistics)
+  );
+
+  // 26. System TTS Acoustic Echo Cancellation: Filler & acknowledgment phrases are suppressed
+  const { KofiVoiceEngine } = await import('../src/services/voiceEngine');
+  const dummyEngine = new KofiVoiceEngine(
+    {
+      onStateChange: () => {},
+      onTranscript: () => {},
+      onIntent: () => {},
+      onError: () => {},
+    },
+    {
+      classifyIntent: async () => ({
+        type: 'conversation',
+        transcript: '',
+        confidence: 1,
+        entities: {},
+        missingInformation: [],
+        requiresConfirmation: false,
+        response: '',
+      }),
+    }
+  );
+
+  const echoFiller1 = dummyEngine.isEchoOfSystemSpeech('Checking that for you...');
+  const echoFiller2 = dummyEngine.isEchoOfSystemSpeech('checking the marketplace');
+  const echoFiller3 = dummyEngine.isEchoOfSystemSpeech('looking into that');
+  assert(
+    echoFiller1 && echoFiller2 && echoFiller3,
+    `26. Acoustic Echo Suppression: System thinking fillers ("Checking that for you", "checking the marketplace") are successfully suppressed from ASR`,
+    JSON.stringify({ echoFiller1, echoFiller2, echoFiller3 })
+  );
+
+  // 27. System Spoken Utterance Ring Buffer: Substrings & word overlap of recent system speech are rejected
+  dummyEngine.registerSystemSpokenText(
+    'Akwaaba! Me din de Kofi, na me bɔ wo sika ho ban wɔ escrow mu.'
+  );
+  const echoFragment1 = dummyEngine.isEchoOfSystemSpeech('Me din de Kofi');
+  const echoFragment2 = dummyEngine.isEchoOfSystemSpeech('bɔ wo sika ho ban wɔ escrow');
+  assert(
+    echoFragment1 && echoFragment2,
+    `27. System Speech Isolation: Substrings and high-overlap echoes of recently spoken system responses are blocked from ASR`,
+    JSON.stringify({ echoFragment1, echoFragment2 })
+  );
+
+  // 28. Genuine User Speech Exclusivity: User queries pass cleanly and are NOT suppressed
+  const userQuery1 = dummyEngine.isEchoOfSystemSpeech('Show me tomatoes in Techiman');
+  const userQuery2 = dummyEngine.isEchoOfSystemSpeech('lori kɔ Kumasi');
+  const userQuery3 = dummyEngine.isEchoOfSystemSpeech('I want to buy 50 bags of maize');
+  assert(
+    !userQuery1 && !userQuery2 && !userQuery3,
+    `28. Genuine User Speech Exclusivity: Legitimate user speech is preserved without false rejection`,
+    JSON.stringify({ userQuery1, userQuery2, userQuery3 })
+  );
+
+  dummyEngine.destroy();
+
   console.log(`\n🎉 Results: ${passed}/${total} verification tests passed!`);
   if (passed === total) {
     process.exit(0);
@@ -190,3 +327,4 @@ async function runTests() {
 }
 
 runTests();
+

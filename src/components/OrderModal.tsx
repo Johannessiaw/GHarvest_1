@@ -16,7 +16,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
   const [paymentMethod, setPaymentMethod] = useState<'MTN Mobile Money' | 'Telecel Cash' | 'AT Money'>('MTN Mobile Money');
   const [buyerName, setBuyerName] = useState<string>('Kofi Mensah Catering');
   const [buyerPhone, setBuyerPhone] = useState<string>('024 123 4567');
-  const [deliveryDate, setDeliveryDate] = useState<string>('2026-09-25');
+  const [deliveryDate, setDeliveryDate] = useState<string>(() => new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isCompleted, setIsCompleted] = useState<boolean>(false);
   const [completedOrder, setCompletedOrder] = useState<Order | null>(null);

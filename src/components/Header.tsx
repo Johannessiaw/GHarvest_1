@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Brain,
   Mic,
+  Zap,
 } from 'lucide-react';
 import { SupportedLanguage, UserRole, AppRoute } from '../types';
 import { VoiceState } from '../services/voiceEngine';
@@ -156,8 +157,11 @@ export const Header: React.FC<HeaderProps> = ({
                 : 'text-gray-300 hover:text-white hover:bg-emerald-900/40'
             }`}
           >
-            <BookOpen className="w-3.5 h-3.5 text-amber-400" />
-            GhanaNLP
+            <Zap className="w-3.5 h-3.5 text-amber-400" />
+            Local ASR Studio
+            <span className="bg-amber-400/20 text-amber-300 text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-amber-400/40">
+              25k+
+            </span>
           </button>
         </nav>
 

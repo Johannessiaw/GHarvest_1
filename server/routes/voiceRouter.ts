@@ -663,6 +663,77 @@ function answerSimpleOrBasicQuestion(
         "I'm doing very well, medaase! I am alert, ready, and happy to assist you today. What can I answer or help you with?",
     };
   }
+
+  // Akan / Twi Greetings & Wellbeing
+  if (
+    lower.includes('wo ho te sɛn') ||
+    lower.includes('wo ho te sen') ||
+    lower.includes('ɛte sɛn') ||
+    lower.includes('ete sen') ||
+    lower.includes('woho te sen')
+  ) {
+    return {
+      confidence: 0.99,
+      reasoning: "User greeted 'Wo ho te sɛn' / 'Ɛte sɛn' (How are you?) in Akan/Twi.",
+      completedThought: 'Warm conversational Akan/Twi greeting reply.',
+      response: 'Me ho yɛ paa, medaase! Wo nso, wo ho te sɛn? Me bɔ mmɔden sɛ mɛboa wo wɔ GHarvest ha.',
+    };
+  }
+
+  // Akan / Twi Identity & Name
+  if (
+    lower.includes('wo din de sɛn') ||
+    lower.includes('wo din de sen') ||
+    lower.includes('hwan koraa ne wo') ||
+    lower.includes('hwan ne wo')
+  ) {
+    return {
+      confidence: 0.99,
+      reasoning: "User asked for Kofi's name in Akan/Twi ('Wo din de sɛn').",
+      completedThought: 'Introduce Kofi in natural fluent Twi.',
+      response: 'Me din de Kofi! Mewɔ ha sɛ mɛboa wo ama woatumi atɔ na woatɔn nnuane, ahwehwɛ lori, na woahwɛ w\'order yiye.',
+    };
+  }
+
+  // Akan / Twi Time-of-day Greetings
+  if (
+    lower.includes('mema wo akye') ||
+    lower.includes('mema wo aha') ||
+    lower.includes('mema wo adwo')
+  ) {
+    return {
+      confidence: 0.99,
+      reasoning: 'User offered traditional Akan time-of-day greeting.',
+      completedThought: 'Traditional Akan time-of-day response.',
+      response: 'Yaa agya / Yaa ɛna! Akwaaba pa ara. Wo ho te sɛn? Ɛdeɛn na me nyɛ mma wo nnɛ wɔ GHarvest ha?',
+    };
+  }
+
+  // Akan / Twi Price / Cost inquiry
+  if (
+    lower.includes('sɛn na ɛyɛ') ||
+    lower.includes('sen na eye') ||
+    lower.includes('ɛboɔ bɛn') ||
+    lower.includes('eboo ben')
+  ) {
+    return {
+      confidence: 0.99,
+      reasoning: 'User inquired about produce price in Akan/Twi.',
+      completedThought: 'Produce pricing check in Twi.',
+      response: 'Wopɛ sɛ wohwɛ aburoo, ntoosi, anaa bayere boɔ? Kyerɛ me adeɛ a wopɛ na mɛka n\'akontabuo ne ne boɔ a ɛda gua no so akyerɛ wo seesei ara.',
+    };
+  }
+
+  // Akan / Twi Expensive Negotiation reaction
+  if (lower.includes('ɛyɛ den dodo') || lower.includes('eye den dodo')) {
+    return {
+      confidence: 0.99,
+      reasoning: 'User remarked that the price is too high in Akan/Twi.',
+      completedThought: 'Respond to price concern in Akan/Twi.',
+      response: 'Mete wo ase! Nnuane no boɔ yɛ den dodo a, yɛbɛtumi ahwehwɛ obi a ɔtɔn ne dea fam kakra ama wo wɔ gua no so.',
+    };
+  }
+
   if (lower.includes('thank you') || lower.includes('medaase') || lower.includes('thanks')) {
     return {
       confidence: 0.99,
@@ -676,7 +747,7 @@ function answerSimpleOrBasicQuestion(
       confidence: 0.99,
       reasoning: 'User asked about Twi language capability.',
       completedThought: 'Demonstrate Twi greeting.',
-      response: 'Aane, meka Twi kakra! Akwaaba, me din de Kofi. How can I help you today?',
+      response: 'Aane, meka Twi paa! Akwaaba, me din de Kofi. Ɛdeɛn na me nyɛ mma wo nnɛ?',
     };
   }
 
@@ -789,9 +860,23 @@ function classifyLocalIntent(
     };
   }
 
-  // Greeting
-  if (/^(hello|hi|hey|akwaaba|good (morning|afternoon|evening)|yo kofi|kofi)/i.test(lower) && lower.length < 25) {
+  // Greeting (English & Akan/Twi)
+  if (
+    /^(hello|hi|hey|akwaaba|wo\s*ho\s*te\s*s[eɛ]n|[eɛ]te\s*s[eɛ]n|mema\s*wo\s*(akye|aha|adwo)|good (morning|afternoon|evening)|yo kofi|kofi)/i.test(
+      lower
+    ) &&
+    lower.length < 35
+  ) {
+    const isTwi = /wo\s*ho\s*te|[eɛ]te\s*s[eɛ]n|mema\s*wo/i.test(lower);
     const isHappyGreeting = lower.includes('akwaaba') || lower.includes('yo') || detectedTone === 'happy';
+    let greetingResponse = isHappyGreeting
+      ? 'Akwaaba! |yeah| Great to hear from you! How can I assist your harvest, orders, or trucks today?'
+      : 'Hello! I am Kofi. How can I help you today with Ghanaian harvests, orders, or freight?';
+
+    if (isTwi) {
+      greetingResponse = 'Me ho yɛ paa, medaase! Akwaaba, me din de Kofi. Ɛdeɛn na me nyɛ mma wo nnɛ wɔ GHarvest ha?';
+    }
+
     return {
       type: 'conversation',
       confidence: 0.98,
@@ -800,17 +885,19 @@ function classifyLocalIntent(
       entities: {},
       missingInformation: [],
       requiresConfirmation: false,
-      reasoning: 'Friendly Ghanaian conversational greeting.',
+      reasoning: isTwi ? 'Akan/Twi conversational greeting.' : 'Friendly Ghanaian conversational greeting.',
       isIncompleteSentence: false,
       completedThought: 'User greeted Kofi.',
       detectedTone: isHappyGreeting ? 'happy' : 'calm',
       toneConfidence: 0.95,
       emotionalContext: 'User is establishing friendly connection.',
       shouldTakeDeepBreath: false,
-      vocalStyle: isHappyGreeting ? 'bright, warm Ghanaian welcome' : 'warm, grounded, attentive',
-      response: isHappyGreeting
-        ? 'Akwaaba! |yeah| Great to hear from you! How can I assist your harvest, orders, or trucks today?'
-        : 'Hello! I am Kofi. How can I help you today with Ghanaian harvests, orders, or freight?',
+      vocalStyle: isTwi
+        ? 'warm, authentic Akan conversational tone'
+        : isHappyGreeting
+        ? 'bright, warm Ghanaian welcome'
+        : 'warm, grounded, attentive',
+      response: greetingResponse,
     };
   }
 
@@ -837,7 +924,27 @@ function classifyLocalIntent(
     };
   }
 
-  // Detect crops / products
+  // Detect crops / products (English & Akan/Twi names)
+  const twiCropMap: Record<string, string> = {
+    aburoo: 'maize',
+    aburo: 'maize',
+    ntoosi: 'tomatoes',
+    ntoose: 'tomatoes',
+    bayere: 'yam',
+    bayerɛ: 'yam',
+    bankye: 'cassava',
+    borɔdeɛ: 'plantain',
+    borode: 'plantain',
+    kookoo: 'cocoa',
+    gyene: 'onions',
+    gyeene: 'onions',
+    mako: 'peppers',
+    shito: 'peppers',
+    ɛmo: 'rice',
+    emo: 'rice',
+    mankani: 'cocoyam',
+  };
+
   const crops = [
     'yam',
     'tomato',
@@ -854,10 +961,22 @@ function classifyLocalIntent(
     'watermelon',
   ];
   let detectedCrop: string | undefined;
-  for (const c of crops) {
-    if (new RegExp(`\\b${c}\\b`, 'i').test(lower)) {
-      detectedCrop = c === 'tomato' ? 'tomatoes' : c === 'onion' ? 'onions' : c === 'pepper' ? 'peppers' : c;
+  let detectedTwiCrop: string | undefined;
+
+  for (const [tCrop, engEquivalent] of Object.entries(twiCropMap)) {
+    if (new RegExp(`\\b${tCrop}\\b`, 'i').test(lower)) {
+      detectedCrop = engEquivalent;
+      detectedTwiCrop = tCrop;
       break;
+    }
+  }
+
+  if (!detectedCrop) {
+    for (const c of crops) {
+      if (new RegExp(`\\b${c}\\b`, 'i').test(lower)) {
+        detectedCrop = c === 'tomato' ? 'tomatoes' : c === 'onion' ? 'onions' : c === 'pepper' ? 'peppers' : c;
+        break;
+      }
     }
   }
 
@@ -880,6 +999,124 @@ function classifyLocalIntent(
     if (qtyMatch[2]) {
       unit = qtyMatch[2];
     }
+  }
+
+  // Akan / Twi Command Handlers
+  const isTwiVoiceCommand =
+    /\b(me pɛ|me pe|kyerɛ me|chere me|lori kɔ|lorry go|gua so|dwa so|fa kɔ|hwehwɛ|tɔn|sɛn na|m'order)\b/i.test(
+      lower
+    );
+
+  // Twi Marketplace / Buy / Search produce
+  if (
+    isTwiVoiceCommand &&
+    (lower.includes('me pɛ') ||
+      lower.includes('me pe') ||
+      lower.includes('kyerɛ me') ||
+      lower.includes('gua so') ||
+      lower.includes('hwehwɛ') ||
+      detectedTwiCrop) &&
+    !lower.includes('tɔn') &&
+    !lower.includes('lori')
+  ) {
+    const cropDisplay = detectedTwiCrop || detectedCrop || 'nnuane';
+    return {
+      type: 'compound_task',
+      confidence: 0.98,
+      route: 'marketplace',
+      action: 'search_listings',
+      entities: {
+        product: detectedCrop || 'yam',
+        ...(detectedTown ? { location: detectedTown } : {}),
+        ...(quantity ? { quantity } : {}),
+      },
+      missingInformation: [],
+      requiresConfirmation: false,
+      reasoning: `User spoke Twi command looking for ${cropDisplay} in the marketplace.`,
+      isIncompleteSentence: false,
+      completedThought: `Open marketplace and find ${cropDisplay} in Twi.`,
+      detectedTone,
+      toneConfidence: 0.95,
+      emotionalContext: 'User is conducting agricultural trade in authentic Twi.',
+      shouldTakeDeepBreath: false,
+      vocalStyle: 'warm, fluent Akan business cadence',
+      response: detectedCrop
+        ? `Merubue gua no so ama wo ahwɛ ${detectedCrop}. GHarvest bɛbɔ wo sika ho ban wɔ escrow mu!`
+        : 'Merubue gua no so ama wo seesei ara ama woahwɛ nnuane a ɛwɔ hɔ nyinaa.',
+    };
+  }
+
+  // Twi Farmer Services / Selling produce
+  if (isTwiVoiceCommand && (lower.includes('tɔn') || lower.includes('me pɛ sɛ me tɔn'))) {
+    return {
+      type: 'application_action',
+      confidence: 0.97,
+      route: 'marketplace',
+      action: 'open_farmer_services',
+      entities: {
+        ...(detectedCrop ? { crop: detectedCrop } : {}),
+      },
+      missingInformation: [],
+      requiresConfirmation: false,
+      reasoning: 'Farmer requested to sell harvest in Twi.',
+      isIncompleteSentence: false,
+      completedThought: 'Open farmer produce listing services in Twi.',
+      detectedTone,
+      toneConfidence: 0.95,
+      emotionalContext: 'Farmer listing crop harvest in Twi.',
+      shouldTakeDeepBreath: false,
+      vocalStyle: 'warm, encouraging Akan conversational cadence',
+      response: detectedCrop
+        ? `Merubue kwan ama woatumi atɔn wo ${detectedCrop} wɔ GHarvest so ntɛm ara.`
+        : "Merubue baabi a wobɛtumi atɔn w'afifideɛ ne nnɔbaeɛ no nyinaa.",
+    };
+  }
+
+  // Twi Logistics / Haulage / Truck
+  if (isTwiVoiceCommand && (lower.includes('lori') || lower.includes('fa kɔ'))) {
+    const dest = detectedTown || 'baabi a wopɛ';
+    return {
+      type: 'navigation',
+      confidence: 0.98,
+      route: 'logistics',
+      action: 'show_logistics',
+      entities: {
+        ...(detectedTown ? { destination: detectedTown } : {}),
+      },
+      missingInformation: [],
+      requiresConfirmation: false,
+      reasoning: `User requested haulage truck/transport in Twi to ${dest}.`,
+      isIncompleteSentence: false,
+      completedThought: `Open logistics freight tracker in Twi to transport produce to ${dest}.`,
+      detectedTone,
+      toneConfidence: 0.95,
+      emotionalContext: 'Haulage freight request in Twi.',
+      shouldTakeDeepBreath: false,
+      vocalStyle: 'crisp, helpful Akan tone',
+      response: `Merubue lori ne akwantuo nhyehyeɛ no ama woatumi afa nnuane akɔ ${dest}.`,
+    };
+  }
+
+  // Twi Orders / Escrow check
+  if (isTwiVoiceCommand && (lower.includes("m'order") || lower.includes('order'))) {
+    return {
+      type: 'navigation',
+      confidence: 0.98,
+      route: 'orders',
+      action: 'show_orders',
+      entities: {},
+      missingInformation: [],
+      requiresConfirmation: false,
+      reasoning: "User asked to view orders and escrow in Twi ('Kyerɛ me m'order').",
+      isIncompleteSentence: false,
+      completedThought: 'Open orders and escrow status page in Twi.',
+      detectedTone,
+      toneConfidence: 0.95,
+      emotionalContext: 'Order inspection in Twi.',
+      shouldTakeDeepBreath: false,
+      vocalStyle: 'reassuring Akan cadence',
+      response: "Merubue w'order ne wo sika a ɛhyɛ escrow mu no nyinaa seesei ara.",
+    };
   }
 
   // If sentence was incomplete but crop was mentioned (e.g. "I want to buy 50 bags of tomatoes in Techiman but...")

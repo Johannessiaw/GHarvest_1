@@ -9,6 +9,8 @@
 import { prepareGhanaianSpeechText, normalizeGhanaianSpeech } from './ghanaNlp';
 import { KofiMemoryStore } from './memoryEngine';
 import { PermanentVoiceStore, PermanentVoiceConfig, DEFAULT_VOICE_CONFIG } from './voiceSettings';
+import { LocalAsrEngine } from './localAsrEngine';
+import { LocalAudioDsp } from './localAudioDsp';
 
 export type VoiceState =
   | 'standby'
@@ -578,6 +580,77 @@ function answerSimpleOrBasicQuestionClient(
         "I'm doing very well, medaase! I am alert, ready, and happy to assist you today. What can I answer or help you with?",
     };
   }
+
+  // Akan / Twi Greetings & Wellbeing
+  if (
+    lower.includes('wo ho te sɛn') ||
+    lower.includes('wo ho te sen') ||
+    lower.includes('ɛte sɛn') ||
+    lower.includes('ete sen') ||
+    lower.includes('woho te sen')
+  ) {
+    return {
+      confidence: 0.99,
+      reasoning: "User greeted 'Wo ho te sɛn' / 'Ɛte sɛn' (How are you?) in Akan/Twi.",
+      completedThought: 'Warm conversational Akan/Twi greeting reply.',
+      response: 'Me ho yɛ paa, medaase! Wo nso, wo ho te sɛn? Me bɔ mmɔden sɛ mɛboa wo wɔ GHarvest ha.',
+    };
+  }
+
+  // Akan / Twi Identity & Name
+  if (
+    lower.includes('wo din de sɛn') ||
+    lower.includes('wo din de sen') ||
+    lower.includes('hwan koraa ne wo') ||
+    lower.includes('hwan ne wo')
+  ) {
+    return {
+      confidence: 0.99,
+      reasoning: "User asked for Kofi's name in Akan/Twi ('Wo din de sɛn').",
+      completedThought: 'Introduce Kofi in natural fluent Twi.',
+      response: 'Me din de Kofi! Mewɔ ha sɛ mɛboa wo ama woatumi atɔ na woatɔn nnuane, ahwehwɛ lori, na woahwɛ w\'order yiye.',
+    };
+  }
+
+  // Akan / Twi Time-of-day Greetings
+  if (
+    lower.includes('mema wo akye') ||
+    lower.includes('mema wo aha') ||
+    lower.includes('mema wo adwo')
+  ) {
+    return {
+      confidence: 0.99,
+      reasoning: 'User offered traditional Akan time-of-day greeting.',
+      completedThought: 'Traditional Akan time-of-day response.',
+      response: 'Yaa agya / Yaa ɛna! Akwaaba pa ara. Wo ho te sɛn? Ɛdeɛn na me nyɛ mma wo nnɛ wɔ GHarvest ha?',
+    };
+  }
+
+  // Akan / Twi Price / Cost inquiry
+  if (
+    lower.includes('sɛn na ɛyɛ') ||
+    lower.includes('sen na eye') ||
+    lower.includes('ɛboɔ bɛn') ||
+    lower.includes('eboo ben')
+  ) {
+    return {
+      confidence: 0.99,
+      reasoning: 'User inquired about produce price in Akan/Twi.',
+      completedThought: 'Produce pricing check in Twi.',
+      response: 'Wopɛ sɛ wohwɛ aburoo, ntoosi, anaa bayere boɔ? Kyerɛ me adeɛ a wopɛ na mɛka n\'akontabuo ne ne boɔ a ɛda gua no so akyerɛ wo seesei ara.',
+    };
+  }
+
+  // Akan / Twi Expensive Negotiation reaction
+  if (lower.includes('ɛyɛ den dodo') || lower.includes('eye den dodo')) {
+    return {
+      confidence: 0.99,
+      reasoning: 'User remarked that the price is too high in Akan/Twi.',
+      completedThought: 'Respond to price concern in Akan/Twi.',
+      response: 'Mete wo ase! Nnuane no boɔ yɛ den dodo a, yɛbɛtumi ahwehwɛ obi a ɔtɔn ne dea fam kakra ama wo wɔ gua no so.',
+    };
+  }
+
   if (lower.includes('thank you') || lower.includes('medaase') || lower.includes('thanks')) {
     return {
       confidence: 0.99,
@@ -591,7 +664,7 @@ function answerSimpleOrBasicQuestionClient(
       confidence: 0.99,
       reasoning: 'User asked about Twi language capability.',
       completedThought: 'Demonstrate Twi greeting.',
-      response: 'Aane, meka Twi kakra! Akwaaba, me din de Kofi. How can I help you today?',
+      response: 'Aane, meka Twi paa! Akwaaba, me din de Kofi. Ɛdeɛn na me nyɛ mma wo nnɛ?',
     };
   }
 
@@ -693,9 +766,23 @@ function classifyLocalIntentClient(
     };
   }
 
-  // Greeting
-  if (/^(hello|hi|hey|akwaaba|good (morning|afternoon|evening)|yo kofi|kofi)/i.test(lower) && lower.length < 25) {
+  // Greeting (English & Akan/Twi)
+  if (
+    /^(hello|hi|hey|akwaaba|wo\s*ho\s*te\s*s[eɛ]n|[eɛ]te\s*s[eɛ]n|mema\s*wo\s*(akye|aha|adwo)|good (morning|afternoon|evening)|yo kofi|kofi)/i.test(
+      lower
+    ) &&
+    lower.length < 35
+  ) {
+    const isTwi = /wo\s*ho\s*te|[eɛ]te\s*s[eɛ]n|mema\s*wo/i.test(lower);
     const isHappy = lower.includes('akwaaba') || lower.includes('yo') || detectedTone === 'happy';
+    let greetingResponse = isHappy
+      ? 'Akwaaba! |yeah| Great to hear from you! How can I assist your harvest, orders, or trucks today?'
+      : 'Hello! I am Kofi. How can I help you today with Ghanaian harvests, orders, or freight?';
+
+    if (isTwi) {
+      greetingResponse = 'Me ho yɛ paa, medaase! Akwaaba, me din de Kofi. Ɛdeɛn na me nyɛ mma wo nnɛ wɔ GHarvest ha?';
+    }
+
     return {
       type: 'conversation',
       transcript,
@@ -705,17 +792,19 @@ function classifyLocalIntentClient(
       entities: {},
       missingInformation: [],
       requiresConfirmation: false,
-      reasoning: 'Friendly Ghanaian conversational greeting.',
+      reasoning: isTwi ? 'Akan/Twi conversational greeting.' : 'Friendly Ghanaian conversational greeting.',
       isIncompleteSentence: false,
       completedThought: 'User greeted Kofi.',
       detectedTone: isHappy ? 'happy' : 'calm',
       toneConfidence: 0.95,
       emotionalContext: 'User is establishing friendly connection.',
       shouldTakeDeepBreath: false,
-      vocalStyle: isHappy ? 'bright, warm Ghanaian welcome' : 'warm, grounded, attentive',
-      response: isHappy
-        ? 'Akwaaba! |yeah| Great to hear from you! How can I assist your harvest, orders, or trucks today?'
-        : 'Hello! I am Kofi. How can I help you today with Ghanaian harvests, orders, or freight?',
+      vocalStyle: isTwi
+        ? 'warm, authentic Akan conversational tone'
+        : isHappy
+        ? 'bright, warm Ghanaian welcome'
+        : 'warm, grounded, attentive',
+      response: greetingResponse,
     };
   }
 
@@ -743,13 +832,59 @@ function classifyLocalIntentClient(
     };
   }
 
-  // Detect crops / products
-  const crops = ['yam', 'tomato', 'tomatoes', 'maize', 'cassava', 'plantain', 'onion', 'onions', 'pepper', 'peppers', 'cocoa', 'rice', 'watermelon'];
+  // Detect crops / products (English & Akan/Twi names)
+  const twiCropMap: Record<string, string> = {
+    aburoo: 'maize',
+    aburo: 'maize',
+    ntoosi: 'tomatoes',
+    ntoose: 'tomatoes',
+    bayere: 'yam',
+    bayerɛ: 'yam',
+    bankye: 'cassava',
+    borɔdeɛ: 'plantain',
+    borode: 'plantain',
+    kookoo: 'cocoa',
+    gyene: 'onions',
+    gyeene: 'onions',
+    mako: 'peppers',
+    shito: 'peppers',
+    ɛmo: 'rice',
+    emo: 'rice',
+    mankani: 'cocoyam',
+  };
+
+  const englishCrops = [
+    'yam',
+    'tomato',
+    'tomatoes',
+    'maize',
+    'cassava',
+    'plantain',
+    'onion',
+    'onions',
+    'pepper',
+    'peppers',
+    'cocoa',
+    'rice',
+    'watermelon',
+  ];
   let detectedCrop: string | undefined;
-  for (const c of crops) {
-    if (new RegExp(`\\b${c}\\b`, 'i').test(lower)) {
-      detectedCrop = c === 'tomato' ? 'tomatoes' : c === 'onion' ? 'onions' : c === 'pepper' ? 'peppers' : c;
+  let detectedTwiCrop: string | undefined;
+
+  for (const [tCrop, engEquivalent] of Object.entries(twiCropMap)) {
+    if (new RegExp(`\\b${tCrop}\\b`, 'i').test(lower)) {
+      detectedCrop = engEquivalent;
+      detectedTwiCrop = tCrop;
       break;
+    }
+  }
+
+  if (!detectedCrop) {
+    for (const c of englishCrops) {
+      if (new RegExp(`\\b${c}\\b`, 'i').test(lower)) {
+        detectedCrop = c === 'tomato' ? 'tomatoes' : c === 'onion' ? 'onions' : c === 'pepper' ? 'peppers' : c;
+        break;
+      }
     }
   }
 
@@ -772,6 +907,128 @@ function classifyLocalIntentClient(
     if (qtyMatch[2]) {
       unit = qtyMatch[2];
     }
+  }
+
+  // Akan / Twi Command Handlers
+  const isTwiVoiceCommand =
+    /\b(me pɛ|me pe|kyerɛ me|chere me|lori kɔ|lorry go|gua so|dwa so|fa kɔ|hwehwɛ|tɔn|sɛn na|m'order)\b/i.test(
+      lower
+    );
+
+  // Twi Marketplace / Buy / Search produce
+  if (
+    isTwiVoiceCommand &&
+    (lower.includes('me pɛ') ||
+      lower.includes('me pe') ||
+      lower.includes('kyerɛ me') ||
+      lower.includes('gua so') ||
+      lower.includes('hwehwɛ') ||
+      detectedTwiCrop) &&
+    !lower.includes('tɔn') &&
+    !lower.includes('lori')
+  ) {
+    const cropDisplay = detectedTwiCrop || detectedCrop || 'nnuane';
+    return {
+      type: 'compound_task',
+      transcript,
+      confidence: 0.98,
+      route: 'marketplace',
+      action: 'search_listings',
+      entities: {
+        product: detectedCrop || 'yam',
+        ...(detectedTown ? { location: detectedTown } : {}),
+        ...(quantity ? { quantity } : {}),
+      },
+      missingInformation: [],
+      requiresConfirmation: false,
+      reasoning: `User spoke Twi command looking for ${cropDisplay} in the marketplace.`,
+      isIncompleteSentence: false,
+      completedThought: `Open marketplace and find ${cropDisplay} in Twi.`,
+      detectedTone,
+      toneConfidence: 0.95,
+      emotionalContext: 'User is conducting agricultural trade in authentic Twi.',
+      shouldTakeDeepBreath: false,
+      vocalStyle: 'warm, fluent Akan business cadence',
+      response: detectedCrop
+        ? `Merubue gua no so ama wo ahwɛ ${detectedCrop}. GHarvest bɛbɔ wo sika ho ban wɔ escrow mu!`
+        : 'Merubue gua no so ama wo seesei ara ama woahwɛ nnuane a ɛwɔ hɔ nyinaa.',
+    };
+  }
+
+  // Twi Farmer Services / Selling produce
+  if (isTwiVoiceCommand && (lower.includes('tɔn') || lower.includes('me pɛ sɛ me tɔn'))) {
+    return {
+      type: 'application_action',
+      transcript,
+      confidence: 0.97,
+      route: 'marketplace',
+      action: 'open_farmer_services',
+      entities: {
+        ...(detectedCrop ? { crop: detectedCrop } : {}),
+      },
+      missingInformation: [],
+      requiresConfirmation: false,
+      reasoning: 'Farmer requested to sell harvest in Twi.',
+      isIncompleteSentence: false,
+      completedThought: 'Open farmer produce listing services in Twi.',
+      detectedTone,
+      toneConfidence: 0.95,
+      emotionalContext: 'Farmer listing crop harvest in Twi.',
+      shouldTakeDeepBreath: false,
+      vocalStyle: 'warm, encouraging Akan conversational cadence',
+      response: detectedCrop
+        ? `Merubue kwan ama woatumi atɔn wo ${detectedCrop} wɔ GHarvest so ntɛm ara.`
+        : "Merubue baabi a wobɛtumi atɔn w'afifideɛ ne nnɔbaeɛ no nyinaa.",
+    };
+  }
+
+  // Twi Logistics / Haulage / Truck
+  if (isTwiVoiceCommand && (lower.includes('lori') || lower.includes('fa kɔ'))) {
+    const dest = detectedTown || 'baabi a wopɛ';
+    return {
+      type: 'navigation',
+      transcript,
+      confidence: 0.98,
+      route: 'logistics',
+      action: 'show_logistics',
+      entities: {
+        ...(detectedTown ? { destination: detectedTown } : {}),
+      },
+      missingInformation: [],
+      requiresConfirmation: false,
+      reasoning: `User requested haulage truck/transport in Twi to ${dest}.`,
+      isIncompleteSentence: false,
+      completedThought: `Open logistics freight tracker in Twi to transport produce to ${dest}.`,
+      detectedTone,
+      toneConfidence: 0.95,
+      emotionalContext: 'Haulage freight request in Twi.',
+      shouldTakeDeepBreath: false,
+      vocalStyle: 'crisp, helpful Akan tone',
+      response: `Merubue lori ne akwantuo nhyehyeɛ no ama woatumi afa nnuane akɔ ${dest}.`,
+    };
+  }
+
+  // Twi Orders / Escrow check
+  if (isTwiVoiceCommand && (lower.includes("m'order") || lower.includes('order'))) {
+    return {
+      type: 'navigation',
+      transcript,
+      confidence: 0.98,
+      route: 'orders',
+      action: 'show_orders',
+      entities: {},
+      missingInformation: [],
+      requiresConfirmation: false,
+      reasoning: "User asked to view orders and escrow in Twi ('Kyerɛ me m'order').",
+      isIncompleteSentence: false,
+      completedThought: 'Open orders and escrow status page in Twi.',
+      detectedTone,
+      toneConfidence: 0.95,
+      emotionalContext: 'Order inspection in Twi.',
+      shouldTakeDeepBreath: false,
+      vocalStyle: 'reassuring Akan cadence',
+      response: "Merubue w'order ne wo sika a ɛhyɛ escrow mu no nyinaa seesei ara.",
+    };
   }
 
   // Incomplete sentence reasoning with crop
@@ -1216,7 +1473,16 @@ function selectAndNormalizeTranscription(result: SpeechRecognitionResult): { tex
     }
   }
 
-  // Intensive phonetic & dialect normalization with GhanaNLP
+  // 1. Pass hypothesis through Local ASR Beam Search Engine (25,000+ trained dataset)
+  try {
+    const localResult = LocalAsrEngine.getInstance().decodeHypothesis(bestText);
+    if (localResult?.transcript) {
+      bestText = localResult.transcript;
+      bestConfidence = Math.max(bestConfidence, localResult.confidence);
+    }
+  } catch {}
+
+  // 2. Intensive phonetic & dialect normalization with GhanaNLP
   try {
     const norm = normalizeGhanaianSpeech(bestText);
     if (norm?.normalized) {
@@ -1238,6 +1504,14 @@ export class KofiVoiceEngine {
   private voiceDetected = false;
   private lastVoiceDetectedAt = 0;
   private isPlayingThinkingAck = false;
+  private lastSystemSpeechEndedAt = 0;
+  private readonly ECHO_GUARD_HANGOVER_MS = 850;
+  private recentSystemSpokenUtterances: Array<{
+    text: string;
+    normalized: string;
+    words: Set<string>;
+    timestamp: number;
+  }> = [];
 
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
   private recognitionRestartTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1288,9 +1562,9 @@ export class KofiVoiceEngine {
     this.permanentMode = this.voiceConfig.permanentModeEnabled;
     this.handsFree = options.handsFree ?? this.voiceConfig.permanentModeEnabled;
 
-    // Ultra-responsive turn-taking: 200ms for pauses, 100ms for questions and final sentences
-    this.silenceTimeoutMs = Math.max(150, options.silenceTimeoutMs ?? 220);
-    this.minimumSpeechMs = options.minimumSpeechMs ?? 100;
+    // Natural conversational turn-taking: 750ms silence timeout prevents premature cutoffs
+    this.silenceTimeoutMs = Math.max(600, options.silenceTimeoutMs ?? 750);
+    this.minimumSpeechMs = options.minimumSpeechMs ?? 150;
 
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       this.synth = window.speechSynthesis;
@@ -1312,7 +1586,13 @@ export class KofiVoiceEngine {
     if (this.permanentWatchdogInterval) clearInterval(this.permanentWatchdogInterval);
     this.permanentWatchdogInterval = setInterval(() => {
       if (this.destroyed) return;
-      if (this.permanentMode && !this.speaking && this.state !== 'speaking' && this.state !== 'processing') {
+      if (
+        this.permanentMode &&
+        !this.speaking &&
+        !this.isSystemSpeakingOrEchoWindow() &&
+        this.state !== 'speaking' &&
+        this.state !== 'processing'
+      ) {
         if (!this.running) {
           this.running = true;
           this.startRecognitionInstance();
@@ -1362,6 +1642,151 @@ export class KofiVoiceEngine {
     if (enabled && !this.running && !this.destroyed) {
       this.start().catch(() => {});
     }
+  }
+
+  /**
+   * Register a system spoken phrase (TTS response, thinking acknowledgment, or earcon narration)
+   * into the echo suppression buffer to prevent ASR from listening to its own voice.
+   */
+  public registerSystemSpokenText(text: string): void {
+    if (!text || !text.trim()) return;
+    const clean = text
+      .replace(/<breath>|<sigh>|<laugh>|<gasp>/gi, '')
+      .replace(/\|yeah\||\|mhm\|/gi, '')
+      .replace(/[*_#`~[\]]/g, '')
+      .replace(/https?:\/\/\S+/g, 'link')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!clean) return;
+
+    const normalized = clean.toLowerCase().replace(/[^a-z0-9\s]/gi, ' ').replace(/\s+/g, ' ').trim();
+    const words = new Set(normalized.split(' ').filter((w) => w.length > 1));
+
+    this.recentSystemSpokenUtterances.push({
+      text: clean,
+      normalized,
+      words,
+      timestamp: Date.now(),
+    });
+
+    // Retain utterances from last 30 seconds (maximum 35 items)
+    const cutoff = Date.now() - 30000;
+    this.recentSystemSpokenUtterances = this.recentSystemSpokenUtterances
+      .filter((item) => item.timestamp >= cutoff)
+      .slice(-35);
+  }
+
+  /**
+   * Returns true if system audio or speech synthesis is currently playing,
+   * OR if we are within the acoustic echo guard hangover period.
+   * During this window, ASR MUST NOT listen to anything.
+   */
+  public isSystemSpeakingOrEchoWindow(): boolean {
+    if (this.speaking) return true;
+    if (this.isPlayingThinkingAck) return true;
+    if (this.currentAudioElement && !this.currentAudioElement.paused) return true;
+
+    // Check browser speech synthesis directly
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+        return true;
+      }
+    }
+
+    // Acoustic hangover guard window: prevent speaker sound tail from leaking into mic buffer
+    if (this.lastSystemSpeechEndedAt > 0 && Date.now() - this.lastSystemSpeechEndedAt < this.ECHO_GUARD_HANGOVER_MS) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Detects if an incoming transcript is acoustic echo or leakage from system TTS output.
+   * Compares lexical and substring similarity against recent system speech.
+   */
+  public isEchoOfSystemSpeech(candidateText: string): boolean {
+    if (!candidateText || !candidateText.trim()) return false;
+
+    // Allow user interrupt / barge-in keywords to pass through
+    const trimmed = candidateText.trim();
+    if (/^(stop|quiet|pause|wait|cancel|shut up|kofi stop|hyehy[eɛ]|gyae)\b/i.test(trimmed)) {
+      return false;
+    }
+
+    // 1. If system speech is actively active or in hangover window, ALL speech is echo/bleed
+    if (this.isSystemSpeakingOrEchoWindow()) {
+      return true;
+    }
+
+    const candClean = candidateText.toLowerCase().replace(/[^a-z0-9\s]/gi, ' ').replace(/\s+/g, ' ').trim();
+    if (!candClean || candClean.length < 2) return false;
+    const candWords = candClean.split(' ').filter((w) => w.length > 1);
+
+    // 2. Common thinking / system filler phrases to explicitly guard
+    const SYSTEM_FILLERS = [
+      'checking that for you',
+      'let me check that for you',
+      'let me check that',
+      'checking that',
+      'looking into that',
+      'checking now',
+      'checking the marketplace',
+      'calculating freight routes',
+      'checking your escrow orders',
+      'checking the escrow orders',
+      'checking marketplace',
+      'i am doing very well medaase',
+      'me ho ye paa medaase',
+      'me din de kofi',
+      'here is what i have stored in my permanent memory bank',
+      'according to your permanent preferences',
+      'why did the scarecrow win an award',
+    ];
+
+    for (const filler of SYSTEM_FILLERS) {
+      if (candClean === filler || candClean.includes(filler) || (candClean.length >= 6 && filler.includes(candClean))) {
+        return true;
+      }
+    }
+
+    // 3. Compare with recent system utterances within last 25 seconds
+    const recentCutoff = Date.now() - 25000;
+    for (const item of this.recentSystemSpokenUtterances) {
+      if (item.timestamp < recentCutoff) continue;
+
+      // Exact match
+      if (item.normalized === candClean) {
+        return true;
+      }
+
+      // Candidate is a substring of the system speech (e.g. mic captured fragment of Kofi's sentence)
+      if (candClean.length >= 4 && item.normalized.includes(candClean)) {
+        return true;
+      }
+
+      // System speech is substring of candidate
+      if (item.normalized.length >= 8 && candClean.includes(item.normalized)) {
+        return true;
+      }
+
+      // Word-overlap ratio (if 50%+ of candidate words are in the system utterance)
+      if (candWords.length >= 2) {
+        let matchingWords = 0;
+        for (const w of candWords) {
+          if (item.words.has(w)) {
+            matchingWords++;
+          }
+        }
+        const overlapRatio = matchingWords / candWords.length;
+        if (overlapRatio >= 0.5) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -1580,7 +2005,9 @@ export class KofiVoiceEngine {
     };
 
     recognition.onresult = (event) => {
-      if (!this.running || this.destroyed || this.speaking) {
+      if (!this.running || this.destroyed || this.isSystemSpeakingOrEchoWindow()) {
+        this.currentPartial = '';
+        this.currentFinal = '';
         return;
       }
 
@@ -1593,6 +2020,11 @@ export class KofiVoiceEngine {
         const { text } = selectAndNormalizeTranscription(result);
 
         if (!text) continue;
+
+        // Acoustic Echo Suppression: Discard any echo or leakage of system TTS audio
+        if (this.isEchoOfSystemSpeech(text)) {
+          continue;
+        }
 
         // Robust Noise Rejection: Discard ambient background noise, clicks, hums, and filler artifacts
         if (this.isNoiseArtifact(text)) {
@@ -1616,6 +2048,13 @@ export class KofiVoiceEngine {
       const combined = this.joinTranscript(this.currentFinal, this.currentPartial);
 
       if (combined) {
+        // Double-check combined transcript against system echo bank
+        if (this.isEchoOfSystemSpeech(combined)) {
+          this.currentPartial = '';
+          this.currentFinal = '';
+          return;
+        }
+
         if (!this.speechStartedAt) {
           this.speechStartedAt = Date.now();
           this.callbacks.onSpeechStart?.();
@@ -1623,13 +2062,11 @@ export class KofiVoiceEngine {
 
         this.callbacks.onTranscript(this.currentPartial, this.currentFinal);
 
-        // Detect if complete question or full thought has been spoken
-        const isQuestion =
-          /^(what|how|why|who|when|where|can|could|is|are|tell me|calculate)\b/i.test(combined) &&
-          combined.split(/\s+/).length >= 2;
+        // Wait for natural conversational end-of-sentence pause (avoids cutting off mid-sentence)
+        const wordCount = combined.split(/\s+/).length;
+        const isCompleteUtterance = hasFinalPiece && wordCount >= 3;
 
-        // Fast endpointing: 100ms if sentence marked final or complete question detected, 200ms otherwise
-        this.scheduleEndpoint(hasFinalPiece || isQuestion);
+        this.scheduleEndpoint(isCompleteUtterance);
       }
     };
 
@@ -1665,14 +2102,25 @@ export class KofiVoiceEngine {
 
       // Crucial: If browser closed recognition session while words were captured, commit them now!
       const pendingText = this.joinTranscript(this.currentFinal, this.currentPartial);
-      if (pendingText && pendingText !== this.lastSubmitted) {
+      if (
+        pendingText &&
+        pendingText !== this.lastSubmitted &&
+        !this.isSystemSpeakingOrEchoWindow() &&
+        !this.isEchoOfSystemSpeech(pendingText)
+      ) {
         this.finishTurn(pendingText);
       }
 
       // Permanent Voice & Hands-Free auto-restart: Keep listening continuously without dropping
       if (this.permanentMode || this.handsFree || this.running) {
         this.recognitionRestartTimer = setTimeout(() => {
-          if (this.destroyed || this.speaking || this.state === 'speaking' || this.state === 'processing') {
+          if (
+            this.destroyed ||
+            this.speaking ||
+            this.isSystemSpeakingOrEchoWindow() ||
+            this.state === 'speaking' ||
+            this.state === 'processing'
+          ) {
             return;
           }
 
@@ -1705,8 +2153,9 @@ export class KofiVoiceEngine {
   private scheduleEndpoint(isFastTurn = false, customDelayMs?: number): void {
     this.clearSilenceTimer();
 
-    // Fast turn detection: 100ms if sentence marked final or complete question detected, 200ms otherwise
-    const waitMs = customDelayMs !== undefined ? customDelayMs : (isFastTurn ? 100 : 200);
+    // Natural human pause detection: 650ms for completed final clauses, 850ms for continuous speech
+    const defaultDelay = isFastTurn ? Math.max(650, this.silenceTimeoutMs * 0.85) : Math.max(850, this.silenceTimeoutMs);
+    const waitMs = customDelayMs !== undefined ? customDelayMs : defaultDelay;
 
     this.silenceTimer = setTimeout(() => {
       if (!this.running || this.destroyed || this.speaking) return;
@@ -1790,9 +2239,18 @@ export class KofiVoiceEngine {
   public async finishTurn(explicitTranscript?: string): Promise<void> {
     this.clearSilenceTimer();
 
+    // Guard: strictly ignore any recognition during system audio playback or acoustic echo hangover
+    if (this.isSystemSpeakingOrEchoWindow()) {
+      this.currentPartial = '';
+      this.currentFinal = '';
+      return;
+    }
+
     let transcript = explicitTranscript || this.joinTranscript(this.currentFinal, this.currentPartial);
 
-    if (!transcript || transcript === this.lastSubmitted) {
+    if (!transcript || transcript === this.lastSubmitted || this.isEchoOfSystemSpeech(transcript)) {
+      this.currentPartial = '';
+      this.currentFinal = '';
       return;
     }
 
@@ -1838,8 +2296,8 @@ export class KofiVoiceEngine {
         transcript,
       });
 
-      // Crucial: Only return to listening/standby if speak() was NOT called
-      if (!this.speaking) {
+      // Crucial: Only return to listening/standby if speak() was NOT called and system is not speaking
+      if (!this.speaking && !this.isSystemSpeakingOrEchoWindow()) {
         if (this.running) {
           this.setState('listening');
         } else {
@@ -1899,6 +2357,16 @@ export class KofiVoiceEngine {
       ackPhrase = 'Checking your escrow orders...';
     }
 
+    // Register phrase in system echo bank immediately
+    this.registerSystemSpokenText(ackPhrase);
+
+    // Temporarily halt mic recognition to guarantee zero self-listening
+    try {
+      this.recognition?.abort();
+    } catch {}
+    this.currentPartial = '';
+    this.currentFinal = '';
+
     if (this.synth) {
       try {
         if (this.synth.speaking) {
@@ -1918,11 +2386,16 @@ export class KofiVoiceEngine {
         }
 
         this.isPlayingThinkingAck = true;
+        ackUtterance.onstart = () => {
+          this.isPlayingThinkingAck = true;
+        };
         ackUtterance.onend = () => {
           this.isPlayingThinkingAck = false;
+          this.lastSystemSpeechEndedAt = Date.now();
         };
         ackUtterance.onerror = () => {
           this.isPlayingThinkingAck = false;
+          this.lastSystemSpeechEndedAt = Date.now();
         };
 
         this.synth.speak(ackUtterance);
@@ -1934,7 +2407,7 @@ export class KofiVoiceEngine {
 
   /**
    * Call this when the assistant starts speaking.
-   * The microphone is stopped to avoid echo feedback.
+   * The microphone is stopped and ASR is strictly gated to avoid echo feedback.
    */
   setSpeaking(value: boolean): void {
     this.speaking = value;
@@ -1948,22 +2421,38 @@ export class KofiVoiceEngine {
       } catch {
         // Ignore browser abort errors
       }
+      this.recognition = null;
+
+      this.currentPartial = '';
+      this.currentFinal = '';
 
       this.setState('speaking');
       this.startSimulatedAudioVisualizer();
       return;
     }
 
+    this.lastSystemSpeechEndedAt = Date.now();
     this.stopAudioVisualizer();
 
-    if ((this.running || this.handsFree) && !this.destroyed) {
-      this.running = true;
-      this.recognition = null;
-      this.startRecognitionInstance();
-      this.startAudioVisualizer();
-    } else {
-      this.setState('standby');
-    }
+    this.clearRestartTimer();
+    const hangoverDelay = Math.max(100, this.ECHO_GUARD_HANGOVER_MS);
+
+    this.recognitionRestartTimer = setTimeout(() => {
+      if (this.destroyed || this.speaking || this.isSystemSpeakingOrEchoWindow()) {
+        return;
+      }
+
+      if ((this.running || this.handsFree) && !this.destroyed) {
+        this.running = true;
+        this.recognition = null;
+        this.currentPartial = '';
+        this.currentFinal = '';
+        this.startRecognitionInstance();
+        this.startAudioVisualizer();
+      } else {
+        this.setState('standby');
+      }
+    }, hangoverDelay);
   }
 
   /**
@@ -1987,12 +2476,20 @@ export class KofiVoiceEngine {
       return;
     }
 
+    // Immediately register system spoken text into echo memory bank
+    this.registerSystemSpokenText(text);
+    const prepared = prepareGhanaianSpeechText(text);
+    if (prepared !== text) {
+      this.registerSystemSpokenText(prepared);
+    }
+
+    // Stop current playback cleanly and immediately lock out recognition
+    this.stopAudioPlayback();
+    this.setSpeaking(true);
+
     const options =
       typeof optionsOrOnEnd === 'function' ? { onEnd: optionsOrOnEnd } : optionsOrOnEnd || {};
     const { onEnd, audioBase64, shouldTakeDeepBreath, tone } = options;
-
-    // Stop current playback cleanly
-    this.stopAudioPlayback();
 
     // 1. Play realistic human deep breath if requested or present in text
     if (shouldTakeDeepBreath || text.includes('<breath>') || text.includes('<sigh>')) {
@@ -2005,16 +2502,17 @@ export class KofiVoiceEngine {
       try {
         const audio = new Audio(`data:audio/wav;base64,${audioBase64}`);
         this.currentAudioElement = audio;
-        this.setSpeaking(true);
 
         audio.onended = () => {
           this.currentAudioElement = null;
+          this.lastSystemSpeechEndedAt = Date.now();
           this.setSpeaking(false);
           onEnd?.();
         };
 
         audio.onerror = () => {
           this.currentAudioElement = null;
+          this.lastSystemSpeechEndedAt = Date.now();
           // Fall through to browser speech synthesis
           this.speakUtterance(text, tone, onEnd);
         };
@@ -2032,14 +2530,12 @@ export class KofiVoiceEngine {
 
   private speakUtterance(text: string, tone?: DetectedHumanTone, onEnd?: () => void): void {
     if (!this.synth) {
+      this.setSpeaking(false);
       onEnd?.();
       return;
     }
 
-    // Play subtle audio earcon cue
-    this.playChime();
-
-    // Clean markup tags while preserving natural pauses
+    // Register clean spoken text into echo suppression buffer
     const cleanText = text
       .replace(/<breath>|<sigh>|<laugh>|<gasp>/gi, '')
       .replace(/\|yeah\||\|mhm\|/gi, '')
@@ -2048,7 +2544,13 @@ export class KofiVoiceEngine {
       .replace(/\n+/g, ' ')
       .trim();
 
+    this.registerSystemSpokenText(cleanText);
     const preparedText = prepareGhanaianSpeechText(cleanText);
+    this.registerSystemSpokenText(preparedText);
+
+    // Play subtle audio earcon cue
+    this.playChime();
+
     const utterance = new SpeechSynthesisUtterance(preparedText);
     this.currentUtterance = utterance;
 
@@ -2111,6 +2613,7 @@ export class KofiVoiceEngine {
         (window as any).__kofiActiveUtterance = null;
       } catch {}
       this.currentUtterance = null;
+      this.lastSystemSpeechEndedAt = Date.now();
       this.setSpeaking(false);
       onEnd?.();
     };
@@ -2166,6 +2669,7 @@ export class KofiVoiceEngine {
    */
   stopAudioPlayback(): void {
     this.isPlayingThinkingAck = false;
+    this.lastSystemSpeechEndedAt = Date.now();
     if (this.currentAudioElement) {
       try {
         this.currentAudioElement.pause();
@@ -2348,10 +2852,10 @@ export class KofiVoiceEngine {
         // Continuously adapt to background room noise floor
         this.ambientNoiseFloor = this.ambientNoiseFloor * 0.98 + rms * 0.02;
         const speechThreshold = Math.max(0.016, this.ambientNoiseFloor * 2.3);
-        const isVoice = rms > speechThreshold;
+        const isVoice = rms > speechThreshold && !this.isSystemSpeakingOrEchoWindow();
         this.voiceDetected = isVoice;
 
-        if (this.state === 'listening') {
+        if (this.state === 'listening' && !this.isSystemSpeakingOrEchoWindow()) {
           if (isVoice) {
             this.lastVoiceDetectedAt = Date.now();
             this.rmsHistory.push(rms);

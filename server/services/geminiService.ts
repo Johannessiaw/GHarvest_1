@@ -1388,10 +1388,43 @@ Core Principles:
       }
     }
 
-    // 26. Greetings
-    if (lower === 'hi' || lower === 'hello' || lower === 'hey' || lower === 'kofi' || lower === 'good morning' || lower === 'good afternoon') {
+    // 26. Greetings (English & Akan/Twi)
+    if (
+      lower.includes('wo ho te') ||
+      lower.includes('ɛte sɛn') ||
+      lower.includes('ete sen') ||
+      lower.includes('mema wo akye') ||
+      lower.includes('mema wo aha') ||
+      lower.includes('mema wo adwo') ||
+      lower.includes('wo din de') ||
+      lower === 'hi' ||
+      lower === 'hello' ||
+      lower === 'hey' ||
+      lower === 'kofi' ||
+      lower === 'akwaaba' ||
+      lower === 'good morning' ||
+      lower === 'good afternoon'
+    ) {
+      const isTwi =
+        lower.includes('wo ho te') ||
+        lower.includes('ɛte sɛn') ||
+        lower.includes('ete sen') ||
+        lower.includes('mema wo') ||
+        lower.includes('wo din de');
+
+      let reply =
+        "Akwaaba! I'm Kofi, your voice-first AI guide for GHarvest. How can I help you today? You can ask me to find produce, check market prices, calculate transport, or track your orders.";
+
+      if (isTwi) {
+        if (lower.includes('wo din de')) {
+          reply = "Me din de Kofi! Mewɔ ha sɛ mɛboa wo ama woatumi atɔ na woatɔn nnuane, ahwehwɛ lori, na woahwɛ w'order yiye.";
+        } else {
+          reply = 'Me ho yɛ paa, medaase! Akwaaba, me din de Kofi. Ɛdeɛn na me nyɛ mma wo nnɛ wɔ GHarvest ha?';
+        }
+      }
+
       return {
-        reply: "Akwaaba! I'm Kofi, your voice-first AI guide for GHarvest. How can I help you today? You can ask me to find produce, check market prices, calculate transport, or track your orders.",
+        reply,
         toolsUsed: ['kofiGreeting'],
         actions,
         updatedMemory,
